@@ -4,7 +4,8 @@ const DEFAULTS = {
   apiKey: "",                      // settato da options.html
   fabBgColor: "#2e7d32",           // verde (vs rosso pricing-ext-v5)
   fabLabel: "→ SIRJ",
-  fabPosition: { right: "20px", bottom: "80px" },
+  fabPosition: { right: "24px", bottom: "150px" },  // sopra il FAB pricing-ext-v5 (bottom:80px)
+  fabZIndex: 1000000,                                 // sopra pricing (999999)
   injectionMaxAttempts: 8,
   injectionInitialDelayMs: 200,
   injectionMaxDelayMs: 30000,

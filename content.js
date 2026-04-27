@@ -36,7 +36,7 @@
     btn.textContent = DEFAULTS.fabLabel;
     btn.style.cssText = `
       position:fixed;right:${DEFAULTS.fabPosition.right};
-      bottom:${DEFAULTS.fabPosition.bottom};z-index:99999;
+      bottom:${DEFAULTS.fabPosition.bottom};z-index:${DEFAULTS.fabZIndex || 1000000};
       background:${DEFAULTS.fabBgColor};color:white;border:0;
       padding:12px 18px;border-radius:30px;font-weight:600;
       box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-size:14px;
