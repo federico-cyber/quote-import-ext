@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AR AUTO — Import Preventivi Qricambi → SIRJ",
+  "version": "0.1.0",
+  "description": "Importa il preventivo Qricambi corrente come PR3 in SIRJ.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "*://*.qricambi.com/*",
+    "http://192.168.1.49:5001/*",
+    "http://localhost:5001/*"
+  ],
+  "icons": { "128": "icons/icon128.png" },
+  "options_page": "options.html",
+  "content_scripts": [{
+    "matches": ["*://*.qricambi.com/*"],
+    "js": ["defaults.js", "content.js"],
+    "run_at": "document_idle"
+  }],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Invia preventivo a SIRJ"
+  }
+}

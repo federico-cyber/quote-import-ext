@@ -1,0 +1,17 @@
+<!-- options.html -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Quote Import — Settings</title>
+<style>body{font-family:sans-serif;max-width:500px;margin:30px auto;padding:0 16px}
+label{display:block;margin:14px 0 4px;font-size:13px;font-weight:600}
+input{width:100%;padding:6px;border:1px solid #ccc;border-radius:3px;font-family:monospace}
+button{background:#2e7d32;color:white;border:0;padding:8px 14px;border-radius:4px;cursor:pointer;margin-top:16px}
+.saved{color:#2e7d32;margin-left:8px}</style>
+</head><body>
+<h2>AR AUTO — Quote Import → SIRJ</h2>
+<label for="backendUrl">Backend URL</label>
+<input id="backendUrl" type="text" placeholder="http://192.168.1.49:5001/api/quote-import">
+<label for="apiKey">X-API-Key</label>
+<input id="apiKey" type="password" placeholder="da /opt/arauto/.env ARAUTO_API_KEY">
+<button id="save">Salva</button><span id="saved" class="saved"></span>
+<script src="defaults.js"></script><script src="options.js"></script>
+</body></html>
