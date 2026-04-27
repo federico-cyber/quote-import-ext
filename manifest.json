@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AR AUTO — Import Preventivi Qricambi → SIRJ",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Importa il preventivo Qricambi corrente come PR3 in SIRJ.",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [

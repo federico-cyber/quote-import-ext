@@ -1,6 +1,6 @@
-// content.js — quote-import-ext v0.1.0
+// content.js — quote-import-ext v0.2.0
 (function () {
-  const TAG = "[QUOTE-IMPORT v0.1.0]";
+  const TAG = "[QUOTE-IMPORT v0.2.0]";
   console.log(TAG, "content script loaded");
 
   let lastPatchPayload = null;
