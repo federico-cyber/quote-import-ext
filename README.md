@@ -9,8 +9,8 @@ Estensione Chrome che importa il preventivo Qricambi corrente come `PR3`
 1. Apri `chrome://extensions`, abilita **Developer mode**.
 2. **Load unpacked** → seleziona questa cartella.
 3. Apri le **Opzioni** dell'estensione (click destro sull'icona → Options):
-   - **Backend URL**: `http://100.86.223.69:5001/api/quote-import` (via Tailscale)
-     o `http://192.168.1.49:5001/api/quote-import` (LAN AR AUTO)
+   - **Backend URL**: `http://100.86.223.69:5008/api/quote-import` (via Tailscale)
+     o `http://192.168.1.49:5008/api/quote-import` (LAN AR AUTO)
    - **X-API-Key**: valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server
    - Salva.
 
@@ -34,7 +34,7 @@ Estensione Chrome che importa il preventivo Qricambi corrente come `PR3`
 ## Requirements
 
 - Chrome 111+ (per il supporto `world: "MAIN"` nei content_scripts).
-- Backend `AcquistiDashboard` raggiungibile sulla porta 5001 (LAN o Tailscale).
+- Backend `AcquistiDashboard` raggiungibile sulla porta 5008 (LAN o Tailscale).
 - `ARAUTO_API_KEY` configurato nelle opzioni dell'estensione.
 
 ## Limiti noti

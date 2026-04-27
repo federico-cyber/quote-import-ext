@@ -2,7 +2,7 @@
 
 Chrome MV3 extension che importa il preventivo Qricambi corrente in SIRJ
 (`Codice_documento='PR3'`, `Magazzino=2` = filiale Siziano) tramite il backend
-AR AUTO `AcquistiDashboard` (`POST /api/quote-import` su porta 5001).
+AR AUTO `AcquistiDashboard` (`POST /api/quote-import` su porta 5008).
 
 ## Architecture
 
@@ -28,7 +28,7 @@ girare nel MAIN world.
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `manifest.json` | — | MV3, host `qricambi.com` + `100.86.223.69:5001` (Tailscale) + `192.168.1.49:5001` (LAN), 2 content_scripts |
+| `manifest.json` | — | MV3, host `qricambi.com` + `100.86.223.69:5008` (Tailscale) + `192.168.1.49:5008` (LAN), 2 content_scripts |
 | `injected.js` | MAIN | fetch + XHR override, postMessage al ISOLATED |
 | `defaults.js` | ISOLATED | DEFAULTS (backendUrl, apiKey, FAB style/position/zIndex) |
 | `content.js` | ISOLATED | listener postMessage + storage + FAB + click handler + toast |
@@ -49,18 +49,18 @@ F12 (sulla pagina Qricambi) → Console → filtro "QUOTE-IMPORT"
 ```
 
 Log relevant:
-- `[QUOTE-IMPORT MAIN v0.4.0] loaded — hooking fetch + XHR` → boot main-world
-- `[QUOTE-IMPORT v0.4.0] content script loaded (isolated)` → boot isolated
-- `[QUOTE-IMPORT MAIN v0.4.0] PATCH /api/Quote intercepted ID=NNNNN` → fetch
+- `[QUOTE-IMPORT MAIN v0.5.0] loaded — hooking fetch + XHR` → boot main-world
+- `[QUOTE-IMPORT v0.5.0] content script loaded (isolated)` → boot isolated
+- `[QUOTE-IMPORT MAIN v0.5.0] PATCH /api/Quote intercepted ID=NNNNN` → fetch
   hookato, payload salvato
-- `[QUOTE-IMPORT v0.4.0] received payload from main-world ID=NNNNN` → bridge
+- `[QUOTE-IMPORT v0.5.0] received payload from main-world ID=NNNNN` → bridge
   postMessage OK
 
 ## Config backend per Mac
 
 | Da Mac in LAN AR AUTO (192.168.1.x) | da Mac via Tailscale |
 |---|---|
-| `http://192.168.1.49:5001/api/quote-import` | `http://100.86.223.69:5001/api/quote-import` |
+| `http://192.168.1.49:5008/api/quote-import` | `http://100.86.223.69:5008/api/quote-import` |
 
 `apiKey` = valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server.
 

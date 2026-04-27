@@ -1,8 +1,8 @@
-// content.js — quote-import-ext v0.4.0 (ISOLATED world)
+// content.js — quote-import-ext v0.5.0 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce FAB + click + POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v0.4.0]";
+  const TAG = "[QUOTE-IMPORT v0.5.0]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 1. Listener postMessage dal main-world script ─────────────────────
