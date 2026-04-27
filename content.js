@@ -1,32 +1,19 @@
-// content.js — quote-import-ext v0.2.0
+// content.js — quote-import-ext v0.3.0 (ISOLATED world)
+// Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
+// in chrome.storage.local. Gestisce FAB + click + POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v0.2.0]";
-  console.log(TAG, "content script loaded");
+  const TAG = "[QUOTE-IMPORT v0.3.0]";
+  console.log(TAG, "content script loaded (isolated)");
 
-  let lastPatchPayload = null;
-
-  // ── 1. Fetch interceptor ─────────────────────────────────────────────
-  const origFetch = window.fetch;
-  window.fetch = async function (...args) {
-    const [resource, init] = args;
-    try {
-      const url = typeof resource === "string" ? resource : resource.url;
-      const method = (init?.method || "").toUpperCase();
-      if (method === "PATCH" && url.includes("/api/Quote") && init?.body) {
-        try {
-          const parsed = typeof init.body === "string"
-            ? JSON.parse(init.body)
-            : null;
-          if (parsed && parsed.ID && Array.isArray(parsed.items)) {
-            lastPatchPayload = parsed;
-            chrome.storage.local.set({ lastPatchPayload: parsed });
-            console.log(TAG, "intercepted PATCH /api/Quote ID=", parsed.ID);
-          }
-        } catch (e) { /* non-JSON body, ignora */ }
-      }
-    } catch (e) { /* non rompere mai il fetch originale */ }
-    return origFetch.apply(this, args);
-  };
+  // ── 1. Listener postMessage dal main-world script ─────────────────────
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.source !== "AR_QUOTE_IMPORT" || !data.payload) return;
+    chrome.storage.local.set({ lastPatchPayload: data.payload });
+    console.log(TAG, "received payload from main-world ID=", data.payload.ID,
+                "items=", data.payload.items.length);
+  });
 
   // ── 2. FAB injection con backoff (riuso pattern pricing-ext-v5) ──────
   function injectFab(attempt) {
