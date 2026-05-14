@@ -92,47 +92,47 @@ icons/                 invariato
 `host_permissions`: `*://*.qricambi.com/*` + i tre URL del bridge
 (`100.86.223.69:5008`, `192.168.1.49:5008`, `localhost:5008`).
 
-### Collisione `DEFAULTS` — unico punto di refactoring reale
+### `DEFAULTS` unico flat — unico punto di refactoring reale
+
+> **Nota.** Le due sottosezioni che seguono correggono due assunzioni dello
+> spec originale: la lettura del codice sorgente (non disponibile quando lo
+> spec è stato abbozzato) ha mostrato che (1) le due estensioni usano aree di
+> storage diverse e (2) la struttura `DEFAULTS` annidata risolveva un problema
+> inesistente. Corretto inline.
 
 Entrambe le estensioni definiscono oggi un global `const DEFAULTS`:
 
 - pricing-ext-v5: `{ regADelta, regACapThreshold, ..., uiRoundStep, ... }`
 - quote-import-ext: `{ backendUrl, apiKey, fabBgColor, fabLabel, fabPosition, ... }`
 
-Caricarle insieme darebbe una ridichiarazione di `const DEFAULTS`. Si risolve con
-un **`DEFAULTS` unico annidato**:
+I due set di chiavi **non hanno alcuna collisione**: l'unico conflitto reale è
+la ridichiarazione del simbolo `const DEFAULTS` quando i due script vengono
+caricati insieme. Si risolve con un **unico `DEFAULTS` flat** in un solo
+`defaults.js`, che fonde tutte le chiavi dei due oggetti — nessun annidamento,
+nessuna rinominazione di riferimenti nei content script (la logica delicata di
+`pricing.content.js`, incluso `setVueInput`, resta intatta). Ogni content
+script continua a usare il proprio sottoinsieme di chiavi dallo stesso oggetto
+condiviso.
 
-```js
-const DEFAULTS = {
-  pricing: {
-    regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-    regCThreshold: 78, regCMarkup: 77,
-    regBMultiplier: 2.0, regBDiscount: 30,
-    uiRoundStep: 5, uiThresholdLow: 10, uiThresholdHigh: 35
-  },
-  import: {
-    backendUrl: "http://100.86.223.69:5008/api/quote-import",
-    apiKey: ""
-  },
-  fab: {
-    zIndex: 1000000,
-    position: { right: "24px", bottom: "80px" },
-    injectionMaxAttempts: 8,
-    injectionInitialDelayMs: 200,
-    injectionMaxDelayMs: 30000
-  }
-};
-```
+Una sezione `fab.*` non serve come namespace: le poche costanti di styling/
+backoff del FAB confluiscono anch'esse flat nel `DEFAULTS` unico (es.
+`fabZIndex`, `injectionMaxAttempts`, ...).
 
-Adeguamenti conseguenti:
+### Area di storage unica: `chrome.storage.local`
 
-- `pricing.content.js`: ogni riferimento a `DEFAULTS.regX` → `DEFAULTS.pricing.regX`;
-  `chrome.storage.sync.get` legge/scrive le chiavi sotto `pricing`.
-- `import.content.js`: `DEFAULTS.backendUrl` → `DEFAULTS.import.backendUrl`, ecc.
-- `options.js`: legge/scrive entrambe le sezioni.
+Stato attuale (scoperto dal codice):
 
-Il `chrome.storage.sync` resta lo store di config (pricing params + backend);
-le chiavi vanno namespaced coerentemente con la struttura annidata.
+- pricing-ext-v5 — config in `chrome.storage.local` (`content.js` e `options.js`).
+- quote-import-ext — config (`backendUrl`, `apiKey`) in `chrome.storage.sync`;
+  payload e ultimo import in `chrome.storage.local`.
+
+L'estensione unificata usa **`chrome.storage.local` per tutto**: parametri
+pricing, config backend, `lastPatchPayload`, e il nuovo `importHistory`. Una
+sola area di storage, coerente, senza le quote strette di `sync` (irrilevanti
+per un setup single-user). Adeguamento conseguente: `import.content.js` e
+`options.js` spostano le letture/scritture di `backendUrl`/`apiKey` da
+`chrome.storage.sync` a `chrome.storage.local`; `pricing.content.js` è già su
+`local` e non cambia area.
 
 ### FAB unico con mini-menu a 2 voci
 
@@ -255,4 +255,5 @@ Una PR singola squash è adeguata (formato AR AUTO `feat(...): ... (#N)`).
 - Meccanismo esatto di cablaggio FAB ↔ handler (`window.__AR_QRICAMBI` namespace
   vs `CustomEvent`).
 - Layout preciso del popup unificato (storico sopra, regole sotto collassabili).
-- Naming definitivo delle chiavi `chrome.storage.sync` namespaced.
+- Posizionamento `position:fixed` di summary widget + toast del pricing una volta
+  estratti dal contenitore FAB (coordinate e z-index da fissare nel plan).
