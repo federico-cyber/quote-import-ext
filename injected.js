@@ -3,7 +3,7 @@
 // Quando intercetta PATCH /api/Quote, posta il payload via window.postMessage al
 // content script ISOLATED che salva in chrome.storage.local.
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v0.5.0]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.0.0]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   function maybePost(method, url, body) {

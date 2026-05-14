@@ -2,7 +2,7 @@
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce FAB + click + POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v0.5.0]";
+  const TAG = "[QUOTE-IMPORT v1.0.0]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 1. Listener postMessage dal main-world script ─────────────────────
@@ -15,39 +15,20 @@
                 "items=", data.payload.items.length);
   });
 
-  // ── 2. FAB injection con backoff (riuso pattern pricing-ext-v5) ──────
-  function injectFab(attempt) {
-    if (document.getElementById("ar-quote-import-fab")) return;
-    const btn = document.createElement("button");
-    btn.id = "ar-quote-import-fab";
-    btn.textContent = DEFAULTS.fabLabel;
-    btn.style.cssText = `
-      position:fixed;right:${DEFAULTS.fabPosition.right};
-      bottom:${DEFAULTS.fabPosition.bottom};z-index:${DEFAULTS.fabZIndex || 1000000};
-      background:${DEFAULTS.fabBgColor};color:white;border:0;
-      padding:12px 18px;border-radius:30px;font-weight:600;
-      box-shadow:0 4px 12px rgba(0,0,0,0.3);cursor:pointer;font-size:14px;
-    `;
-    btn.onclick = handleClick;
-    document.body.appendChild(btn);
-    console.log(TAG, "FAB injected on attempt", attempt);
+  // ── 2. Handler import: registrato su window.__AR_QRICAMBI per il menu FAB ──
+  window.__AR_QRICAMBI = window.__AR_QRICAMBI || { onPricing: null, onImport: null };
+
+  // Storico import: array FIFO (cap 50) in chrome.storage.local.importHistory
+  async function appendToHistory(record) {
+    const stored = await new Promise((resolve) =>
+      chrome.storage.local.get({ importHistory: [] }, resolve));
+    const history = Array.isArray(stored.importHistory) ? stored.importHistory : [];
+    history.unshift(record);
+    if (history.length > 50) history.length = 50;
+    await new Promise((resolve) =>
+      chrome.storage.local.set({ importHistory: history }, resolve));
   }
 
-  function startInjection() {
-    let attempt = 1, delay = DEFAULTS.injectionInitialDelayMs;
-    function tryInject() {
-      if (document.body) { injectFab(attempt); return; }
-      if (attempt++ >= DEFAULTS.injectionMaxAttempts) {
-        console.warn(TAG, "Injection aborted after max attempts"); return;
-      }
-      delay = Math.min(delay * 2, DEFAULTS.injectionMaxDelayMs);
-      setTimeout(tryInject, delay);
-    }
-    tryInject();
-  }
-  startInjection();
-
-  // ── 3. Click handler: leggi payload, conferma, POST al backend ──────
   async function handleClick() {
     const stored = await new Promise((resolve) =>
       chrome.storage.local.get(["lastPatchPayload"], resolve));
@@ -58,7 +39,7 @@
     }
 
     const cfg = await new Promise((resolve) =>
-      chrome.storage.sync.get(DEFAULTS, resolve));
+      chrome.storage.local.get(DEFAULTS, resolve));
     if (!cfg.apiKey) {
       alert("Configura X-API-Key in Opzioni.");
       chrome.runtime.openOptionsPage();
@@ -79,7 +60,15 @@
     );
     if (!ok) return;
 
-    btnLoading(true);
+    const baseRecord = {
+      ts: Date.now(),
+      qricambiId: payload.ID,
+      customer: payload.customerdata?.CustomerName || "(?)",
+      car: payload.car || "",
+      itemsCount: payload.items.length,
+      total: payload.total || 0,
+    };
+
     try {
       const res = await fetch(cfg.backendUrl, {
         method: "POST",
@@ -88,34 +77,27 @@
       });
       const body = await res.json();
       if (res.status === 200) {
-        chrome.storage.local.set({
-          lastQricambiId: payload.ID,
-          lastSirjNumero: body.sirj_numero,
-          lastSirjAnno: body.sirj_anno,
-          lastError: null,
-        });
+        await appendToHistory({ ...baseRecord, status: "ok",
+          sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
         toast(`✓ Importato come PR3 ${body.sirj_numero}/${body.sirj_anno}`, "ok");
       } else if (res.status === 409) {
+        await appendToHistory({ ...baseRecord, status: "dup",
+          sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
         toast(`Già importato: PR3 ${body.sirj_numero}/${body.sirj_anno}`, "warn");
       } else if (res.status === 422) {
+        await appendToHistory({ ...baseRecord, status: "err",
+          sirjNumero: null, sirjAnno: null, error: "Cliente non trovato in SIRJ" });
         toast(`Cliente non trovato in SIRJ. Codice Qricambi: ${body.customer_hint?.CustomerCode || "?"}`, "err");
       } else {
-        chrome.storage.local.set({ lastError: body.error || res.statusText });
+        await appendToHistory({ ...baseRecord, status: "err",
+          sirjNumero: null, sirjAnno: null, error: body.error || res.statusText });
         toast(`Errore ${res.status}: ${body.error || res.statusText}`, "err");
       }
     } catch (e) {
-      chrome.storage.local.set({ lastError: e.message });
+      await appendToHistory({ ...baseRecord, status: "err",
+        sirjNumero: null, sirjAnno: null, error: e.message });
       toast(`Errore rete: ${e.message}`, "err");
-    } finally {
-      btnLoading(false);
     }
-  }
-
-  function btnLoading(on) {
-    const b = document.getElementById("ar-quote-import-fab");
-    if (!b) return;
-    b.disabled = on;
-    b.textContent = on ? "…" : DEFAULTS.fabLabel;
   }
 
   function toast(msg, kind) {
@@ -131,4 +113,7 @@
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 6000);
   }
+
+  // ── 5. Registrazione handler per il menu FAB ────────────────────────
+  window.__AR_QRICAMBI.onImport = handleClick;
 })();
