@@ -16,6 +16,7 @@ e import preventivi in SIRJ in un'unica estensione con un solo FAB a 2 voci.
 |---|---|
 | Mac in LAN AR AUTO (192.168.1.x) | `http://192.168.1.49:5008/api/quote-import` |
 | Mac via Tailscale | `http://100.86.223.69:5008/api/quote-import` |
+| Backend in esecuzione sulla stessa macchina (dev/test locale) | `http://localhost:5008/api/quote-import` |
 
 `X-API-Key` = valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server.
 

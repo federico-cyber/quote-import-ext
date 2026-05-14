@@ -26,6 +26,14 @@ Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
 | `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
 | `import.content.js` | ISOLATED, document_idle | Listener `postMessage` + POST a SIRJ + storico import; registra `onImport` |
 
+**Perché `injected.js` gira nel mondo MAIN:** in MV3 i content script vengono eseguiti
+in un mondo ISOLATED che non ha accesso al `window` reale della pagina; per intercettare
+`fetch`/`XMLHttpRequest` è necessario sovrascrivere le funzioni native sull'oggetto
+`window` della pagina stessa, operazione possibile solo nel mondo MAIN. Una volta
+intercettato il payload, `injected.js` non può accedere alle API `chrome.*` (riservate al
+mondo ISOLATED), quindi lo pubblica tramite `window.postMessage` e `import.content.js`
+lo raccoglie dal lato ISOLATED per effettuare la chiamata al backend.
+
 `fab.js` carica per primo fra i tre script ISOLATED dipendenti da `DEFAULTS` e
 crea `window.__AR_QRICAMBI`; i due content script vi registrano il loro handler.
 
