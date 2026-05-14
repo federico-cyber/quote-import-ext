@@ -3,7 +3,7 @@
   "name": "AR AUTO — Qricambi",
   "version": "1.0.0",
   "description": "Pricing automatico + import preventivi Qricambi in SIRJ, in un'unica estensione.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "*://*.qricambi.com/*",
     "http://100.86.223.69:5008/*",
