@@ -1,70 +1,61 @@
-# CLAUDE.md — quote-import-ext
+# CLAUDE.md — AR AUTO — Qricambi (estensione unificata)
 
-Chrome MV3 extension che importa il preventivo Qricambi corrente in SIRJ
-(`Codice_documento='PR3'`, `Magazzino=2` = filiale Siziano) tramite il backend
-AR AUTO `AcquistiDashboard` (`POST /api/quote-import` su porta 5008).
+Chrome Extension MV3 che gira su `*.qricambi.com`. Unifica due estensioni
+precedenti: il **pricing automatico** (ex `pricing-ext-v5`) e l'**import
+preventivi in SIRJ** (ex `quote-import-ext`).
 
-## Architecture
+## Caricamento
 
-Due content scripts in mondi diversi (MV3 isolated/main world separation):
+No build step. `chrome://extensions` → "Carica estensione non pacchettizzata"
+→ seleziona questa cartella. Dopo ogni modifica: ricarica l'estensione + refresh
+della pagina Qricambi.
 
-1. **`injected.js` (MAIN world, document_start)**: gira nel contesto della
-   pagina `app.qricambi.com`, override `window.fetch` + `XMLHttpRequest` per
-   intercettare le `PATCH /api/Quote` che Vue invia ad ogni edit del preventivo.
-   Quando intercetta un body con `ID` + `items[]`, posta tutto via
-   `window.postMessage({source:"AR_QUOTE_IMPORT", payload})` al content script
-   isolated. Niente `chrome.*` API qui (non disponibili in MAIN world).
-2. **`content.js` (ISOLATED world, document_idle)**: ascolta i `postMessage` e
-   salva il payload in `chrome.storage.local`. Inietta un FAB verde "→ SIRJ"
-   con backoff esponenziale (sopra il FAB rosso di `pricing-ext-v5`). Click →
-   modal di conferma con preview → `fetch` POST al backend con header
-   `X-API-Key`. Toast verde/giallo/rosso per feedback (200/409/422 + errori).
+## Architettura
 
-Lo split è necessario perché in MV3 il content script ISOLATED **non vede** il
-`window.fetch` originale della pagina (mondo isolato), quindi l'override deve
-girare nel MAIN world.
+Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
+- **⚡ Applica Pricing** → regole pricing A/B/C sulle tabelle preventivo Vue 3.
+- **→ Importa in SIRJ** → invia il preventivo corrente come PR3 al bridge `:5008`.
 
-## Files
+### Content scripts
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `manifest.json` | — | MV3, host `qricambi.com` + `100.86.223.69:5008` (Tailscale) + `192.168.1.49:5008` (LAN), 2 content_scripts |
-| `injected.js` | MAIN | fetch + XHR override, postMessage al ISOLATED |
-| `defaults.js` | ISOLATED | DEFAULTS (backendUrl, apiKey, FAB style/position/zIndex) |
-| `content.js` | ISOLATED | listener postMessage + storage + FAB + click handler + toast |
-| `popup.html`/`popup.js` | popup | mostra ultimo import (qricambi_id → sirj_numero) |
-| `options.html`/`options.js` | options | config backendUrl + apiKey |
+| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, posta il payload via `postMessage` |
+| `defaults.js` | ISOLATED, document_idle | Unico `const DEFAULTS` flat (pricing + backend + injection) |
+| `fab.js` | ISOLATED, document_idle | Inietta l'unico FAB + menu, espone `window.__AR_QRICAMBI = { onPricing, onImport }` |
+| `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
+| `import.content.js` | ISOLATED, document_idle | Listener `postMessage` + POST a SIRJ + storico import; registra `onImport` |
 
-## Origine
+`fab.js` carica per primo fra i tre script ISOLATED dipendenti da `DEFAULTS` e
+crea `window.__AR_QRICAMBI`; i due content script vi registrano il loro handler.
 
-Forkato strutturalmente da `~/projects/pricing-ext-v5` v6.1, ma logica diversa:
-pricing-ext applica regole sconto su Vue input via `setVueInput` → quote-import-ext
-intercetta PATCH e POSTa al backend AR AUTO, niente scrittura su Vue. Nessun
-codice di `setVueInput` qui.
+### Storage
+
+Tutto su `chrome.storage.local`:
+- parametri pricing + `backendUrl` + `apiKey` (config, gestita da `options.html`);
+- `lastPatchPayload` (ultimo payload intercettato da `injected.js`);
+- `importHistory` (array FIFO, cap 50 — vedi sotto).
+
+### setVueInput (in `pricing.content.js`)
+
+Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
+(`execCommand` → native setter → `__vueParentComponent` emit → verification loop).
+**Non semplificare mai `setVueInput()`** — la complessità gestisce la reattività Vue.
+
+### Storico import
+
+`import.content.js` appende un record a `chrome.storage.local.importHistory` su
+**tutti** i rami della risposta POST (200/409/422/errore rete). Array FIFO cap 50.
+Il popup ne mostra gli ultimi 20.
 
 ## Debug
 
 ```
-F12 (sulla pagina Qricambi) → Console → filtro "QUOTE-IMPORT"
+F12 → Console → filtra "[AR-PRICING" | "[QUOTE-IMPORT" | "[AR-QR-FAB"
 ```
 
-Log relevant:
-- `[QUOTE-IMPORT MAIN v0.5.0] loaded — hooking fetch + XHR` → boot main-world
-- `[QUOTE-IMPORT v0.5.0] content script loaded (isolated)` → boot isolated
-- `[QUOTE-IMPORT MAIN v0.5.0] PATCH /api/Quote intercepted ID=NNNNN` → fetch
-  hookato, payload salvato
-- `[QUOTE-IMPORT v0.5.0] received payload from main-world ID=NNNNN` → bridge
-  postMessage OK
+## Coerenza versione
 
-## Config backend per Mac
-
-| Da Mac in LAN AR AUTO (192.168.1.x) | da Mac via Tailscale |
-|---|---|
-| `http://192.168.1.49:5008/api/quote-import` | `http://100.86.223.69:5008/api/quote-import` |
-
-`apiKey` = valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server.
-
-## Versioning
-
-Tutte le stringhe versione devono restare in sync: `manifest.json:version`,
-`content.js` TAG, `injected.js` TAG.
+Le stringhe versione vanno tenute in sync: `manifest.json:version`, i `TAG` di
+`fab.js` / `pricing.content.js` / `import.content.js` / `injected.js`, commento
+in `defaults.js`, footer di `popup.html` e `options.html`.
