@@ -1,6 +1,7 @@
 // content.js — quote-import-ext v0.5.0 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
-// in chrome.storage.local. Gestisce FAB + click + POST al backend AR AUTO.
+// in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
+// storico import e POST al backend AR AUTO.
 (function () {
   const TAG = "[QUOTE-IMPORT v1.0.0]";
   console.log(TAG, "content script loaded (isolated)");
@@ -114,6 +115,6 @@
     setTimeout(() => t.remove(), 6000);
   }
 
-  // ── 5. Registrazione handler per il menu FAB ────────────────────────
+  // ── 3. Registrazione handler per il menu FAB ────────────────────────
   window.__AR_QRICAMBI.onImport = handleClick;
 })();
