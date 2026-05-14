@@ -43,52 +43,22 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v6.1]';
+  const TAG = '[AR-PRICING v1.0.0]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
   const css = document.createElement('style');
   css.textContent = `
-    #ar-pricing-fab {
+    #ar-pricing-ui {
       position: fixed;
-      bottom: 80px;
+      bottom: 150px;
       right: 24px;
-      z-index: 999999;
+      z-index: 999998;
       display: flex;
       flex-direction: column;
       align-items: flex-end;
       gap: 8px;
       font-family: -apple-system, 'DM Sans', sans-serif;
-    }
-    #ar-pricing-btn {
-      background: #e8ff47;
-      color: #0e0f11;
-      border: none;
-      border-radius: 28px;
-      padding: 12px 22px;
-      font-size: 13px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      cursor: pointer;
-      box-shadow: 0 4px 20px rgba(232,255,71,0.4);
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      white-space: nowrap;
-    }
-    #ar-pricing-btn:hover {
-      background: #d4eb3a;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 28px rgba(232,255,71,0.5);
-    }
-    #ar-pricing-btn:active { transform: translateY(0); }
-    #ar-pricing-btn:disabled {
-      background: #3a3d44;
-      color: #6b7280;
-      box-shadow: none;
-      cursor: not-allowed;
-      transform: none;
     }
     #ar-pricing-toast {
       background: #16181c;
@@ -150,84 +120,41 @@
     #ar-pricing-summary .sub { font-size: 10px; color: #4ade80; margin-top: 2px; font-weight: 500; }
   `;
 
-  // ── FAB (creato una sola volta) ────────────────────────────
-  const fab = document.createElement('div');
-  fab.id = 'ar-pricing-fab';
-  fab.innerHTML = `
+  // ── UI pricing (summary widget + toast — il FAB è in fab.js) ──────
+  const pricingUi = document.createElement('div');
+  pricingUi.id = 'ar-pricing-ui';
+  pricingUi.innerHTML = `
     <div id="ar-pricing-summary">
       <div class="label">Guadagno Totale Stimato</div>
       <div class="value" id="ar-total-value">0,00 €</div>
       <div id="ar-total-details" class="sub">0 righe elaborate</div>
     </div>
     <div id="ar-pricing-toast"></div>
-    <button id="ar-pricing-btn">
-      <span>⚡</span> APPLICA PRICING
-    </button>
   `;
 
-  // ── INJECTION ROBUSTA ─────────────────────────────────────
-  function injectFab() {
+  // ── INJECTION UI PRICING ──────────────────────────────────
+  // Il contenitore serve solo on-demand (al click "Applica Pricing"),
+  // quindi basta iniettarlo a document_idle con fallback DOMContentLoaded.
+  function injectPricingUi() {
     try {
-      if (!document.body) return false;
-      if (!document.head) return false;
-
+      if (!document.body || !document.head) return false;
       if (!document.getElementById('ar-pricing-style')) {
         css.id = 'ar-pricing-style';
         document.head.appendChild(css);
       }
-
-      if (!document.getElementById('ar-pricing-fab')) {
-        document.body.appendChild(fab);
-        console.log(TAG, 'FAB iniettato nel DOM');
+      if (!document.getElementById('ar-pricing-ui')) {
+        document.body.appendChild(pricingUi);
+        console.log(TAG, 'UI pricing iniettata nel DOM');
       }
-
       return true;
     } catch (e) {
-      console.error(TAG, 'Errore injection:', e);
+      console.error(TAG, 'Errore injection UI pricing:', e);
       return false;
     }
   }
 
-  // ── EXPONENTIAL BACKOFF INJECTION (v6.1) ──────────────────
-  // Riprova ad iniettare il FAB fino a 30 secondi per SPA lente
-  // Usa exponential backoff: 200ms, 500ms, 1s, 2s, 4s, 8s, 15s, 30s
-  let injectionAttempt = 0;
-  const MAX_INJECTION_ATTEMPTS = 8;
-  const BASE_DELAY = 200;
-  const MAX_TOTAL_DELAY = 30000; // 30 secondi max
-  let totalDelayAccum = 0;
-
-  function scheduleNextInjection() {
-    if (injectionAttempt >= MAX_INJECTION_ATTEMPTS || totalDelayAccum >= MAX_TOTAL_DELAY) {
-      console.warn(TAG, 'Injection aborted after', injectionAttempt, 'attempts or 30s timeout');
-      return;
-    }
-
-    const delay = Math.min(
-      BASE_DELAY * Math.pow(2, injectionAttempt),
-      MAX_TOTAL_DELAY - totalDelayAccum
-    );
-
-    totalDelayAccum += delay;
-    injectionAttempt++;
-
-    setTimeout(() => {
-      if (injectFab()) {
-        console.log(TAG, `FAB injected successfully on attempt ${injectionAttempt} (delay ${delay}ms)`);
-      } else {
-        scheduleNextInjection(); // Schedula prossimo tentativo
-      }
-    }, delay);
-  }
-
-  // Trigger iniziale immediato
-  if (!injectFab()) {
-    // Se fallisce subito, schedula retry con backoff
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', scheduleNextInjection);
-    } else {
-      scheduleNextInjection(); // Already loaded, start backoff
-    }
+  if (!injectPricingUi()) {
+    document.addEventListener('DOMContentLoaded', injectPricingUi);
   }
 
   // ── UTILS ─────────────────────────────────────────────────
@@ -516,67 +443,55 @@
     });
   }
 
-  // ── CLICK HANDLER ─────────────────────────────────────────
-  fab.addEventListener('click', (e) => {
-    if (!e.target.closest('#ar-pricing-btn')) return;
-    const btn = document.getElementById('ar-pricing-btn');
-    if (!btn || btn.disabled) return;
+  // ── HANDLER: registrato su window.__AR_QRICAMBI per il menu FAB ──
+  window.__AR_QRICAMBI = window.__AR_QRICAMBI || { onPricing: null, onImport: null };
+  window.__AR_QRICAMBI.onPricing = async function () {
+    injectPricingUi(); // rete di sicurezza se l'SPA ha ripulito il body
+    try {
+      await loadSettings(); // Ricarica prima di ogni esecuzione
+      const res = await esegui();
 
-    btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span> Analisi...';
-
-    setTimeout(async () => {
-      try {
-        await loadSettings(); // Ricarica prima di ogni esecuzione
-        const res = await esegui();
-
-        if (res.tot === 0) {
-          showToast(`
-            <b>Nessuna riga trovata</b><br>
-            <span class="m">Assicurati di essere su un preventivo aperto
-            con almeno una riga prodotto.</span>
-          `, 'error');
-        } else if (res.ok === 0) {
-          showToast(
-            `<b>0 righe aggiornate</b><br>` +
-            (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-            (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-            (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
-            (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
-            `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
-            'error'
-          );
-        } else {
-          const rA = res.dettagli.filter(r => r.regola === 'A').length;
-          const rB = res.dettagli.filter(r => r.regola === 'B').length;
-          const rC = res.dettagli.filter(r => r.regola === 'C').length;
-          const nRighe = parseInt(res.ok, 10);
-          const label = nRighe !== 1 ? 'righe aggiornate' : 'riga aggiornata';
-          showToast(
-            `<b>✓ ${nRighe} ${label}</b><br>` +
-            (rA ? toastLine('g', 'Regola A', rA) : '') +
-            (rB ? toastLine('b', 'Regola B', rB) : '') +
-            (rC ? toastLine('o', 'Regola C', rC) : '') +
-            (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-            (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-            (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
-            (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
-            `<span class="m">Verifica e salva il preventivo.</span>`,
-            'success'
-          );
-
-          // Aggiorna Widget Totale
-          updateSummaryWidget(res);
-        }
-      } catch (e) {
-        console.error(TAG, 'Errore esecuzione pricing:', e);
-        showToast(`<b>Errore</b><br><span class="m">${escHtml(e.message)}</span>`, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span>⚡</span> APPLICA PRICING';
+      if (res.tot === 0) {
+        showToast(`
+          <b>Nessuna riga trovata</b><br>
+          <span class="m">Assicurati di essere su un preventivo aperto
+          con almeno una riga prodotto.</span>
+        `, 'error');
+      } else if (res.ok === 0) {
+        showToast(
+          `<b>0 righe aggiornate</b><br>` +
+          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
+          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
+          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
+          'error'
+        );
+      } else {
+        const rA = res.dettagli.filter(r => r.regola === 'A').length;
+        const rB = res.dettagli.filter(r => r.regola === 'B').length;
+        const rC = res.dettagli.filter(r => r.regola === 'C').length;
+        const nRighe = parseInt(res.ok, 10);
+        const label = nRighe !== 1 ? 'righe aggiornate' : 'riga aggiornata';
+        showToast(
+          `<b>✓ ${nRighe} ${label}</b><br>` +
+          (rA ? toastLine('g', 'Regola A', rA) : '') +
+          (rB ? toastLine('b', 'Regola B', rB) : '') +
+          (rC ? toastLine('o', 'Regola C', rC) : '') +
+          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
+          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
+          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          `<span class="m">Verifica e salva il preventivo.</span>`,
+          'success'
+        );
+        updateSummaryWidget(res);
       }
-    }, 200);
-  });
+    } catch (e) {
+      console.error(TAG, 'Errore esecuzione pricing:', e);
+      showToast(`<b>Errore</b><br><span class="m">${escHtml(e.message)}</span>`, 'error');
+    }
+  };
 
   function updateSummaryWidget(res) {
     const summary = document.getElementById('ar-pricing-summary');
@@ -894,23 +809,6 @@
     }
 
     return { tot: ok + skip, ok, skip, skipReasons, dettagli };
-  }
-
-  // ── SPA OBSERVER ─────────────────────────────────────────
-  const bodyObserver = new MutationObserver(() => {
-    if (!document.getElementById('ar-pricing-fab') && document.body) {
-      console.log(TAG, 'FAB rimosso dal DOM, reinjecting...');
-      document.body.appendChild(fab);
-    }
-  });
-
-  if (document.body) {
-    bodyObserver.observe(document.body, { childList: true });
-  } else {
-    document.addEventListener('DOMContentLoaded', () => {
-      bodyObserver.observe(document.body, { childList: true });
-      injectFab();
-    });
   }
 
 })();
