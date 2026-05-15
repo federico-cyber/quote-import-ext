@@ -70,25 +70,56 @@
       total: payload.total || 0,
     };
 
-    try {
+    const FALLBACK_CLIFOR_NUMERO = 5;
+
+    async function postQuote(body) {
       const res = await fetch(cfg.backendUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": cfg.apiKey },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
-      const body = await res.json();
+      return { res, body: await res.json() };
+    }
+
+    try {
+      let { res, body } = await postQuote(payload);
+
+      // Cliente non trovato → offri fallback su cliente generico SIRJ #5
+      if (res.status === 422 && body.customer_hint) {
+        const qrCode = body.customer_hint?.CustomerCode || "?";
+        const retry = confirm(
+          `Cliente non trovato in SIRJ (codice Qricambi: ${qrCode}).\n\n` +
+          `Importare comunque come cliente generico SIRJ #${FALLBACK_CLIFOR_NUMERO}?`
+        );
+        if (retry) {
+          ({ res, body } = await postQuote({
+            ...payload,
+            override_clifor_numero: FALLBACK_CLIFOR_NUMERO,
+          }));
+        } else {
+          await appendToHistory({ ...baseRecord, status: "err",
+            sirjNumero: null, sirjAnno: null, error: "Cliente non trovato in SIRJ" });
+          toast(`Cliente non trovato in SIRJ. Codice Qricambi: ${qrCode}`, "err");
+          return;
+        }
+      }
+
       if (res.status === 200) {
-        await appendToHistory({ ...baseRecord, status: "ok",
+        const isFallback = body.override_clifor_numero !== undefined ||
+          payload.override_clifor_numero !== undefined;
+        const status = isFallback ? "ok-fallback" : "ok";
+        await appendToHistory({ ...baseRecord, status,
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
-        toast(`✓ Importato come PR3 ${body.sirj_numero}/${body.sirj_anno}`, "ok");
+        const suffix = isFallback ? ` (cliente generico #${FALLBACK_CLIFOR_NUMERO})` : "";
+        toast(`✓ Importato come PR3 ${body.sirj_numero}/${body.sirj_anno}${suffix}`, "ok");
       } else if (res.status === 409) {
         await appendToHistory({ ...baseRecord, status: "dup",
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
         toast(`Già importato: PR3 ${body.sirj_numero}/${body.sirj_anno}`, "warn");
       } else if (res.status === 422) {
         await appendToHistory({ ...baseRecord, status: "err",
-          sirjNumero: null, sirjAnno: null, error: "Cliente non trovato in SIRJ" });
-        toast(`Cliente non trovato in SIRJ. Codice Qricambi: ${body.customer_hint?.CustomerCode || "?"}`, "err");
+          sirjNumero: null, sirjAnno: null, error: body.error || "Errore 422" });
+        toast(`Errore: ${body.error || "cliente non trovato"}`, "err");
       } else {
         await appendToHistory({ ...baseRecord, status: "err",
           sirjNumero: null, sirjAnno: null, error: body.error || res.statusText });

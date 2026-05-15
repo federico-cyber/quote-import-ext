@@ -9,6 +9,7 @@ function fmtTime(ts) {
 
 function outcomeText(rec) {
   if (rec.status === 'ok')  return `✓ PR3 ${rec.sirjNumero}/${rec.sirjAnno}`;
+  if (rec.status === 'ok-fallback') return `✓ PR3 ${rec.sirjNumero}/${rec.sirjAnno} (cliente generico)`;
   if (rec.status === 'dup') return `↺ già importato: PR3 ${rec.sirjNumero}/${rec.sirjAnno}`;
   return `✗ ${rec.error || 'errore'}`;
 }
