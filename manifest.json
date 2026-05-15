@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AR AUTO — Qricambi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pricing automatico + import preventivi Qricambi in SIRJ, in un'unica estensione.",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
@@ -10,7 +10,12 @@
     "http://192.168.1.49:5008/*",
     "http://localhost:5008/*"
   ],
-  "icons": { "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "options_page": "options.html",
   "content_scripts": [
     {
@@ -28,6 +33,10 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AR AUTO — Qricambi"
+    "default_title": "AR AUTO — Qricambi",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   }
 }
