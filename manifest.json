@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "AR AUTO — Qricambi",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Pricing automatico + import preventivi Qricambi in SIRJ, in un'unica estensione.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs9+NTKTyQWlstNzAwW3CWHBgCQsjhQmragCxOFHm1SPD9CRkXGS8HphkWzYEr0muzrtlZRNKDmosHjaNVeiVlUW8SC4gyKWe8frh6HriI3QHrY/qiYN1Jfv0MHoaTDx30maDJZJk+PsiZd0Sr4OYzDfVCye/pKEj1Lz8lJSj40imuYm38ThDbnzIKhDnbdqUCrboZSb1liD3H1dd5Um7mhtp1pxxWcRi8B5G+bCg7jssDjkqk49fWlCJuksR7JhyAQFCh1zZHnX8z2P66hBKWFqCFq0bvnSe0EKU6U0498eluxhB3VHdIzwbyizjhy2rKsg1h+vR0ISh65wTIOdrawIDAQAB",
+  "update_url": "http://192.168.1.49:8000/api/ext/quote-import-ext-updates.xml",
   "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "*://*.qricambi.com/*",
