@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — AR AUTO Qricambi</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }
+h1 { font-size: 22px; }
+h2 { font-size: 16px; margin-top: 28px; color: #444; }
+code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+.meta { color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy — AR AUTO Qricambi</h1>
+<p class="meta">Estensione Chrome: <code>AR AUTO — Qricambi</code> · Editor: AR AUTO Ricambi Srl · Aggiornata il 15 maggio 2026</p>
+
+<h2>1. Chi siamo</h2>
+<p>L'estensione "AR AUTO — Qricambi" è sviluppata da AR AUTO Ricambi Srl per uso interno del personale dell'azienda. Viene distribuita tramite Chrome Web Store in modalità "Non in elenco" (Unlisted).</p>
+
+<h2>2. Cosa fa l'estensione</h2>
+<p>L'estensione si attiva solo sulle pagine del dominio <code>qricambi.com</code> e svolge due funzioni:</p>
+<ul>
+<li><strong>Pricing</strong>: legge i prezzi presenti sulla pagina del preventivo, applica le regole di pricing configurate dall'utente, e scrive i prezzi modificati nei campi del form del preventivo.</li>
+<li><strong>Import in SIRJ</strong>: quando l'utente clicca esplicitamente "Importa", il payload del preventivo (cliente, veicolo, articoli, prezzi) viene inviato via HTTP POST al backend privato di AR AUTO (server LAN o tramite Tailscale VPN aziendale) che lo registra nel gestionale interno SIRJ.</li>
+</ul>
+
+<h2>3. Quali dati raccoglie e dove vengono inviati</h2>
+<p>L'estensione legge dalla pagina Qricambi i seguenti dati del preventivo solo quando l'utente avvia l'import:</p>
+<ul>
+<li>ID e dati anagrafici del cliente Qricambi (ragione sociale, P.IVA, email)</li>
+<li>Dati del veicolo (marca, modello, targa/telaio quando presenti)</li>
+<li>Lista degli articoli del preventivo (codice, descrizione, quantità, prezzo)</li>
+</ul>
+<p>Questi dati vengono inviati esclusivamente al backend interno di AR AUTO (URL configurabile dall'utente nelle opzioni dell'estensione, di default un indirizzo IP della rete LAN aziendale). Non vengono inviati a servizi terzi, non vengono trasmessi su internet pubblico, non vengono usati per profilazione.</p>
+
+<h2>4. Cosa viene salvato in locale (chrome.storage.local)</h2>
+<ul>
+<li>Le regole di pricing configurate dall'utente (numeri, default modificabili).</li>
+<li>La chiave API per autenticarsi al backend interno (impostata dall'utente).</li>
+<li>L'URL del backend interno.</li>
+<li>Uno storico locale degli ultimi 50 import effettuati (cliente, veicolo, esito, ID PR3 generato in SIRJ).</li>
+</ul>
+<p>Questi dati restano nella memoria locale di Chrome dell'utente e non lasciano il dispositivo, salvo l'invio del payload preventivo descritto al punto 3.</p>
+
+<h2>5. Cosa NON facciamo</h2>
+<ul>
+<li>Nessuna tracciatura della navigazione web dell'utente.</li>
+<li>Nessuna raccolta di dati di analytics.</li>
+<li>Nessun invio a server di Google, Anthropic o altre terze parti.</li>
+<li>Nessuna vendita di dati a terzi.</li>
+<li>Nessun accesso a dati al di fuori delle pagine <code>qricambi.com</code>.</li>
+</ul>
+
+<h2>6. Conservazione</h2>
+<p>I dati inviati al backend AR AUTO vengono conservati nel gestionale SIRJ aziendale secondo le politiche di retention interne (anni, per fatturazione e tracciabilità ordini).</p>
+<p>Lo storico locale di Chrome è in FIFO e viene troncato a 50 record; può essere cancellato manualmente dall'utente con "Rimuovi dati dell'estensione" da Chrome.</p>
+
+<h2>7. Contatti</h2>
+<p>Per richieste relative alla privacy: <a href="mailto:federico@arautoricambi.com">federico@arautoricambi.com</a></p>
+
+</body>
+</html>
