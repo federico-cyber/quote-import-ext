@@ -1,55 +1,38 @@
-# AR AUTO — Quote Import (Qricambi → SIRJ PR3)
+# AR AUTO — Qricambi
 
-Estensione Chrome che importa il preventivo Qricambi corrente come `PR3`
-(preventivo filiale Siziano, Magazzino=2) in SIRJ, tramite il backend
-`AcquistiDashboard` di AR AUTO.
+Estensione Chrome (Manifest v3) per `*.qricambi.com`. Unifica pricing automatico
+e import preventivi in SIRJ in un'unica estensione con un solo FAB a 2 voci.
 
-## Setup
+## Installazione
 
-1. Apri `chrome://extensions`, abilita **Developer mode**.
-2. **Load unpacked** → seleziona questa cartella.
-3. Apri le **Opzioni** dell'estensione (click destro sull'icona → Options):
-   - **Backend URL**: `http://100.86.223.69:5008/api/quote-import` (via Tailscale)
-     o `http://192.168.1.49:5008/api/quote-import` (LAN AR AUTO)
-   - **X-API-Key**: valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server
-   - Salva.
+1. `chrome://extensions` → attiva "Modalità sviluppatore".
+2. "Carica estensione non pacchettizzata" → seleziona questa cartella.
+3. Apri il popup dell'estensione → ingranaggio → configura **Backend URL** e
+   **X-API-Key** (vedi sotto).
+
+## Configurazione backend (import SIRJ)
+
+| Contesto | Backend URL |
+|---|---|
+| Mac in LAN AR AUTO (192.168.1.x) | `http://192.168.1.49:5008/api/quote-import` |
+| Mac via Tailscale | `http://100.86.223.69:5008/api/quote-import` |
+| Backend in esecuzione sulla stessa macchina (dev/test locale) | `http://localhost:5008/api/quote-import` |
+
+`X-API-Key` = valore di `ARAUTO_API_KEY` in `/opt/arauto/.env` sul server.
 
 ## Uso
 
-1. Apri un preventivo su `app.qricambi.com/?activetab=quote_edit&id=...`.
-2. **Modifica e salva almeno una volta** (anche un blur su un campo basta) —
-   Vue manda `PATCH /api/Quote` col preventivo completo, l'estensione lo
-   intercetta e lo memorizza.
-3. Premi il FAB verde **"→ SIRJ"** in basso a destra (sopra il FAB rosso di
-   pricing-ext-v5 se installato).
-4. Conferma il dialog di preview (cliente, auto, items, totale).
-5. Toast verde di conferma con `PR3 NNNN/2026`.
+Su una pagina preventivo Qricambi compare il FAB **≡ AR AUTO** in basso a destra.
+Click → menu:
 
-## Toast colorati
+- **⚡ Applica Pricing** — applica le regole A/B/C alle righe del preventivo.
+- **→ Importa in SIRJ** — invia il preventivo corrente come PR3. Prima modifica/
+  salva il preventivo (anche un solo blur) così `injected.js` lo intercetta.
 
-- 🟢 **verde** — `✓ Importato come PR3 N/2026` (HTTP 200)
-- 🟡 **giallo** — `Già importato: PR3 N/2026` (HTTP 409 idempotenza)
-- 🔴 **rosso** — `Cliente non trovato in SIRJ` (HTTP 422) o errore di rete
+Il popup dell'estensione mostra lo **storico import** (ultimi 20, con esito).
 
-## Requirements
+## Storico import
 
-- Chrome 111+ (per il supporto `world: "MAIN"` nei content_scripts).
-- Backend `AcquistiDashboard` raggiungibile sulla porta 5008 (LAN o Tailscale).
-- `ARAUTO_API_KEY` configurato nelle opzioni dell'estensione.
-
-## Limiti noti
-
-- Il preventivo deve essere stato salvato/modificato **almeno una volta** in
-  questa sessione browser per essere intercettato (l'estensione hooka la
-  PATCH, non fa pull periodico).
-- Cliente non in `clifor` (P.IVA/CF/email/CustomerCode tutti miss) → errore
-  422. Va creato in SIRJ desktop prima dell'import.
-- Articoli con codice non in `parmag` mag=2 → riga manuale (`Precodice='.'`,
-  `Parte=<code Qricambi raw>[:15]`).
-- Match articoli: tenta normalizzazione (strip prefix manufacturer, separatori)
-  ma in caso di codici molto fuori standard può non matchare → riga manuale.
-
-## Debug
-
-F12 sulla pagina Qricambi → Console → filtra `QUOTE-IMPORT`. Vedi i log dei due
-mondi (MAIN per fetch interception, ISOLATED per FAB + storage).
+Ogni import (riuscito, duplicato o errore) viene registrato in
+`chrome.storage.local.importHistory` — array FIFO, max 50 record. Lo storico è
+locale al profilo Chrome.

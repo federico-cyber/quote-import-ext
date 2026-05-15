@@ -1,13 +1,73 @@
-<!-- popup.html -->
 <!doctype html>
-<html><head><meta charset="utf-8"><title>AR AUTO Quote Import</title>
-<style>body{font-family:sans-serif;width:280px;margin:0;padding:12px}h2{margin:0 0 8px;font-size:14px}
-.row{margin:6px 0;font-size:12px}.muted{color:#666}.ok{color:#2e7d32}.err{color:#c62828}
-button{background:#2e7d32;color:white;border:0;padding:6px 12px;border-radius:4px;cursor:pointer}</style>
-</head><body>
-<h2>Quote Import → SIRJ</h2>
-<div id="status" class="row muted">Caricamento…</div>
-<div id="last" class="row"></div>
-<button id="opts">Impostazioni</button>
-<script src="popup.js"></script>
-</body></html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>AR AUTO — Qricambi</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+    :root {
+      --bg: #0e0f11; --surface: #16181c; --border: #2a2d34;
+      --accent: #e8ff47; --green: #4ade80; --orange: #fb923c; --red: #f87171;
+      --text: #e8eaed; --muted: #6b7280;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { width: 320px; background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif; font-weight: 300; padding: 16px; }
+    .header { display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    h1 { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 800; }
+    h1 span { color: var(--accent); }
+    #open-options { background: none; border: none; cursor: pointer; color: var(--muted);
+      padding: 4px; display: flex; align-items: center; }
+    #open-options:hover { color: var(--text); }
+    .label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+    #history { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .hist-row { background: var(--surface); border: 1px solid var(--border);
+      border-left-width: 3px; border-radius: 6px; padding: 8px 10px; font-size: 11px; }
+    .hist-row.ok  { border-left-color: var(--green); }
+    .hist-row.ok-fallback { border-left-color: var(--orange); }
+    .hist-row.dup { border-left-color: var(--orange); }
+    .hist-row.err { border-left-color: var(--red); }
+    .hist-line1 { display: flex; justify-content: space-between; gap: 8px; }
+    .hist-customer { font-weight: 500; color: var(--text); }
+    .hist-time { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); white-space: nowrap; }
+    .hist-line2 { color: var(--muted); margin-top: 3px; }
+    .hist-outcome { font-family: 'DM Mono', monospace; font-size: 10px; margin-top: 3px; }
+    .hist-outcome.ok  { color: var(--green); }
+    .hist-outcome.dup { color: var(--orange); }
+    .hist-outcome.err { color: var(--red); }
+    .empty { color: var(--muted); font-size: 12px; padding: 12px 0; }
+    details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+    summary { cursor: pointer; font-family: 'DM Mono', monospace; font-size: 10px;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .rule { background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px; margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+    .rule code { font-family: 'DM Mono', monospace; color: var(--text);
+      background: #0a0b0d; padding: 1px 4px; border-radius: 3px; }
+    .footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+      font-family: 'DM Mono', monospace; font-size: 9px; color: var(--border); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>AR <span>AUTO</span> — QRICAMBI</h1>
+    <button id="open-options" title="Impostazioni" aria-label="Apri impostazioni">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V11a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+    </button>
+  </div>
+
+  <div class="label">Storico Import → SIRJ</div>
+  <div id="history"><div class="empty">Caricamento…</div></div>
+
+  <details>
+    <summary>Regole Pricing</summary>
+    <div class="rule"><b>Regola A</b> — con listino (sconto ≤ 78pp): sconto cliente = sconto fornitore <code>− 20pp</code>.</div>
+    <div class="rule"><b>Regola C</b> — listino + sconto &gt; 78pp: prezzo cliente = netto <code>× 1.77</code>.</div>
+    <div class="rule"><b>Regola B</b> — senza listino: listino fittizio = netto <code>× 2</code>, sconto <code>30%</code>.</div>
+  </details>
+
+  <div class="footer">AR AUTO — Qricambi v1.0.0</div>
+  <script src="popup.js"></script>
+</body>
+</html>

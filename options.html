@@ -1,17 +1,122 @@
-<!-- options.html -->
-<!doctype html>
-<html><head><meta charset="utf-8"><title>Quote Import — Settings</title>
-<style>body{font-family:sans-serif;max-width:500px;margin:30px auto;padding:0 16px}
-label{display:block;margin:14px 0 4px;font-size:13px;font-weight:600}
-input{width:100%;padding:6px;border:1px solid #ccc;border-radius:3px;font-family:monospace}
-button{background:#2e7d32;color:white;border:0;padding:8px 14px;border-radius:4px;cursor:pointer;margin-top:16px}
-.saved{color:#2e7d32;margin-left:8px}</style>
-</head><body>
-<h2>AR AUTO — Quote Import → SIRJ</h2>
-<label for="backendUrl">Backend URL</label>
-<input id="backendUrl" type="text" placeholder="http://192.168.1.49:5001/api/quote-import">
-<label for="apiKey">X-API-Key</label>
-<input id="apiKey" type="password" placeholder="da /opt/arauto/.env ARAUTO_API_KEY">
-<button id="save">Salva</button><span id="saved" class="saved"></span>
-<script src="defaults.js"></script><script src="options.js"></script>
-</body></html>
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Impostazioni AR AUTO — Qricambi</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+    :root {
+      --bg: #0e0f11; --surface: #16181c; --border: #2a2d34;
+      --accent: #e8ff47; --accent2: #47c8ff; --accent3: #fb923c;
+      --green: #4ade80; --red: #f87171; --text: #e8eaed; --muted: #6b7280;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif;
+      margin: 0; padding: 40px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 600px; }
+    header { margin-bottom: 40px; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
+    h1 { font-family: 'Syne', sans-serif; font-size: 28px; font-weight: 800; margin: 0; }
+    h1 span { color: var(--accent); }
+    .section { background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+    .section-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700;
+      margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    .section-title.reg-a { color: var(--accent); }
+    .section-title.reg-b { color: var(--accent2); }
+    .section-title.reg-c { color: var(--accent3); }
+    .section-title.import { color: var(--green); }
+    .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
+    label { font-size: 13px; font-weight: 500; color: var(--muted); }
+    .input-row { display: flex; align-items: center; gap: 12px; }
+    input[type="number"], input[type="text"], input[type="password"] {
+      background: #0a0b0d; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 8px 12px; font-family: 'DM Mono', monospace; font-size: 14px; }
+    input[type="number"] { width: 100px; }
+    input[type="text"], input[type="password"] { width: 100%; }
+    input:focus { outline: none; border-color: var(--accent); }
+    .description { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
+    button { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+      padding: 10px 24px; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    #save-btn { background: var(--accent); color: var(--bg); border: none; }
+    #save-btn:hover { background: #d4eb3a; transform: translateY(-1px); }
+    #reset-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    #reset-btn:hover { color: var(--text); border-color: var(--muted); }
+    .status-msg { margin-top: 16px; text-align: right; font-size: 12px;
+      font-family: 'DM Mono', monospace; opacity: 0; transition: opacity 0.3s; }
+    .status-msg.show { opacity: 1; color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>AR <span>AUTO</span> — QRICAMBI</h1>
+      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.0.0</p>
+    </header>
+
+    <div class="section">
+      <div class="section-title reg-a">Regola A (con listino)</div>
+      <div class="form-group"><label>Delta Sconto (pp)</label>
+        <div class="input-row"><input type="number" id="reg-a-delta" value="20">
+        <span class="description">Valore sottratto allo sconto fornitore (es. -20pp).</span></div></div>
+      <div class="form-group"><label>Soglia Cap Fornitore (%)</label>
+        <div class="input-row"><input type="number" id="reg-a-cap-threshold" value="80">
+        <span class="description">Se lo sconto fornitore supera questo valore...</span></div></div>
+      <div class="form-group"><label>Sconto Fisso Cap (%)</label>
+        <div class="input-row"><input type="number" id="reg-a-cap-value" value="70">
+        <span class="description">...applica questo sconto fisso al cliente.</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title reg-c">Regola C (ricarico fisso)</div>
+      <div class="form-group"><label>Soglia Attivazione (%)</label>
+        <div class="input-row"><input type="number" id="reg-c-threshold" value="78">
+        <span class="description">Attiva Regola C se lo sconto fornitore > questo valore.</span></div></div>
+      <div class="form-group"><label>Percentuale Ricarico (%)</label>
+        <div class="input-row"><input type="number" id="reg-c-markup" value="77">
+        <span class="description">Ricarico fisso sul prezzo netto di acquisto.</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title reg-b">Regola B (senza listino)</div>
+      <div class="form-group"><label>Moltiplicatore Listino</label>
+        <div class="input-row"><input type="number" step="0.1" id="reg-b-multiplier" value="2">
+        <span class="description">Prezzo acquisto × Moltiplicatore = Listino fittizio.</span></div></div>
+      <div class="form-group"><label>Sconto Cliente (%)</label>
+        <div class="input-row"><input type="number" id="reg-b-discount" value="30">
+        <span class="description">Sconto applicato al listino fittizio.</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" style="color: var(--text)">UI & Logica Visuale</div>
+      <div class="form-group"><label>Passo Arrotondamento Sconto</label>
+        <div class="input-row"><input type="number" id="ui-round-step" value="5">
+        <span class="description">Arrotonda lo sconto calcolato a questo multiplo (es. 5pp).</span></div></div>
+      <div class="form-group"><label>Soglia "Utile Basso" (%)</label>
+        <div class="input-row"><input type="number" id="ui-threshold-low" value="10">
+        <span class="description">Sotto questa % di ricarico, la riga diventa ROSSA.</span></div></div>
+      <div class="form-group"><label>Soglia "Utile Alto" (%)</label>
+        <div class="input-row"><input type="number" id="ui-threshold-high" value="35">
+        <span class="description">Sopra questa % di ricarico, la riga diventa VERDE.</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title import">Import SIRJ</div>
+      <div class="form-group"><label for="backendUrl">Backend URL</label>
+        <input type="text" id="backendUrl" placeholder="http://100.86.223.69:5008/api/quote-import">
+        <span class="description">Endpoint del bridge qricambi (porta 5008). Tailscale: 100.86.223.69 — LAN: 192.168.1.49.</span></div>
+      <div class="form-group"><label for="apiKey">X-API-Key</label>
+        <input type="password" id="apiKey" placeholder="da /opt/arauto/.env ARAUTO_API_KEY">
+        <span class="description">Valore di ARAUTO_API_KEY. Non viene toccato da "Ripristina Default".</span></div>
+    </div>
+
+    <div class="actions">
+      <button id="reset-btn">Ripristina Default Pricing</button>
+      <button id="save-btn">Salva Impostazioni</button>
+    </div>
+    <div id="status" class="status-msg">Impostazioni salvate con successo!</div>
+  </div>
+
+  <script src="defaults.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
