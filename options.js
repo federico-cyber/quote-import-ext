@@ -36,6 +36,7 @@ function loadSettings() {
     document.getElementById('ui-threshold-high').value = s.uiThresholdHigh;
     document.getElementById('backendUrl').value = s.backendUrl;
     document.getElementById('apiKey').value = s.apiKey;
+    document.getElementById('overrideCliforNumero').value = s.overrideCliforNumero;
     clearAllErrors();
   });
 }
@@ -103,8 +104,9 @@ function saveSettings() {
     uiRoundStep:      getNum('ui-round-step'),
     uiThresholdLow:   getNum('ui-threshold-low'),
     uiThresholdHigh:  getNum('ui-threshold-high'),
-    backendUrl:       document.getElementById('backendUrl').value.trim(),
-    apiKey:           document.getElementById('apiKey').value.trim(),
+    backendUrl:            document.getElementById('backendUrl').value.trim(),
+    apiKey:                document.getElementById('apiKey').value.trim(),
+    overrideCliforNumero:  getNum('overrideCliforNumero'),
   };
   chrome.storage.local.set(settings, () => flashStatus('Impostazioni salvate con successo!', false));
 }

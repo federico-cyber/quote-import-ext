@@ -17,6 +17,7 @@ const DEFAULTS = {
   // ── Backend import SIRJ (ex quote-import-ext v0.5.0) ────────────────
   backendUrl: "http://100.86.223.69:5008/api/quote-import",
   apiKey: "",
+  overrideCliforNumero: 0,  // 0 = nessun override (usa matching automatico)
   // ── FAB injection (usate da fab.js) ─────────────────────────────────
   fabZIndex: 1000000,
   injectionMaxAttempts: 8,
