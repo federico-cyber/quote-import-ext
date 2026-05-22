@@ -107,6 +107,9 @@
       <div class="form-group"><label for="apiKey">X-API-Key</label>
         <input type="password" id="apiKey" placeholder="da /opt/arauto/.env ARAUTO_API_KEY">
         <span class="description">Valore di ARAUTO_API_KEY. Non viene toccato da "Ripristina Default".</span></div>
+      <div class="form-group"><label for="overrideCliforNumero">Override Codice Cliente SIRJ</label>
+        <div class="input-row"><input type="number" id="overrideCliforNumero" value="0" min="0">
+        <span class="description">Se &gt; 0, usa questo numero clifor SIRJ per <b>tutti</b> gli import (salta il matching automatico). Imposta 0 per usare il matching normale.</span></div></div>
     </div>
 
     <div class="actions">

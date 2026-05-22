@@ -47,13 +47,18 @@
       return;
     }
 
+    // Override manuale codice cliente (configurabile in Opzioni, issue #9)
+    // Se cfg.overrideCliforNumero > 0, lo inietta nel payload e bypassa il matching automatico.
+    const manualOverride = Number(cfg.overrideCliforNumero) || 0;
+
     const itemsPreview = payload.items.map((it, i) =>
       `  ${i + 1}. ${it.code || "(no code)"} ${it.manufacturer || ""} — ${it.description || ""} (qty ${it.num}, €${it.price})`
     ).join("\n");
     const customer = payload.customerdata?.CustomerName || "(?)";
+    const overrideNote = manualOverride > 0 ? `\nOverride cliente SIRJ: #${manualOverride} (da Opzioni)` : "";
     const ok = confirm(
       `Importare in SIRJ come PR3?\n\n` +
-      `Cliente: ${customer} (Code ${payload.customerdata?.CustomerCode || "?"})\n` +
+      `Cliente: ${customer} (Code ${payload.customerdata?.CustomerCode || "?"})${overrideNote}\n` +
       `Auto: ${payload.car || "(?)"}\n` +
       `Targa: ${(payload.lplatevin || []).join(" / ")}\n` +
       `Items (${payload.items.length}):\n${itemsPreview}\n` +
@@ -81,11 +86,17 @@
       return { res, body: await res.json() };
     }
 
+    // Se è configurato un override manuale, lo aggiungiamo al payload prima del primo POST.
+    const initialPayload = manualOverride > 0
+      ? { ...payload, override_clifor_numero: manualOverride }
+      : payload;
+
     try {
-      let { res, body } = await postQuote(payload);
+      let { res, body } = await postQuote(initialPayload);
 
       // Cliente non trovato → offri fallback su cliente generico SIRJ #5
-      if (res.status === 422 && body.customer_hint) {
+      // (questo ramo scatta solo se manualOverride = 0, altrimenti il 422 è un errore reale)
+      if (res.status === 422 && body.customer_hint && manualOverride === 0) {
         const qrCode = body.customer_hint?.CustomerCode || "?";
         const retry = confirm(
           `Cliente non trovato in SIRJ (codice Qricambi: ${qrCode}).\n\n` +
@@ -105,12 +116,14 @@
       }
 
       if (res.status === 200) {
-        const isFallback = body.override_clifor_numero !== undefined ||
-          payload.override_clifor_numero !== undefined;
+        const usedOverride = manualOverride > 0 ? manualOverride :
+          (body.override_clifor_numero !== undefined || payload.override_clifor_numero !== undefined
+            ? FALLBACK_CLIFOR_NUMERO : 0);
+        const isFallback = usedOverride > 0;
         const status = isFallback ? "ok-fallback" : "ok";
         await appendToHistory({ ...baseRecord, status,
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
-        const suffix = isFallback ? ` (cliente generico #${FALLBACK_CLIFOR_NUMERO})` : "";
+        const suffix = isFallback ? ` (override cliente #${usedOverride})` : "";
         toast(`✓ Importato come PR3 ${body.sirj_numero}/${body.sirj_anno}${suffix}`, "ok");
       } else if (res.status === 409) {
         await appendToHistory({ ...baseRecord, status: "dup",
