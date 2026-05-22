@@ -431,10 +431,21 @@
         return;
       }
       chrome.storage.local.get(DEFAULTS, (settings) => {
-        // Fallback: pulisce null/undefined
+        // Fallback: ripristina al default solo le chiavi numeriche pricing (isNaN su stringhe
+        // come backendUrl/apiKey darebbe true e le resetterebbe erroneamente).
+        const NUMERIC_PRICING_KEYS = new Set([
+          'regADelta', 'regACapThreshold', 'regACapValue',
+          'regCThreshold', 'regCMarkup', 'regBMultiplier', 'regBDiscount',
+          'uiRoundStep', 'uiThresholdLow', 'uiThresholdHigh',
+          'fabZIndex', 'injectionMaxAttempts', 'injectionInitialDelayMs', 'injectionMaxDelayMs',
+        ]);
         const cleanSettings = {};
         for (const [k, v] of Object.entries(settings)) {
-          cleanSettings[k] = (v !== null && v !== undefined && !isNaN(v)) ? v : DEFAULTS[k];
+          if (NUMERIC_PRICING_KEYS.has(k)) {
+            cleanSettings[k] = (v !== null && v !== undefined && !isNaN(v)) ? v : DEFAULTS[k];
+          } else {
+            cleanSettings[k] = (v !== null && v !== undefined) ? v : DEFAULTS[k];
+          }
         }
         S = { ...DEFAULTS, ...cleanSettings };
         console.log(TAG, 'Impostazioni caricate e validate:', S);
@@ -601,13 +612,9 @@
     // Attiva monitoraggio real-time
     setupTableListeners();
 
-    const btn = document.getElementById('ar-pricing-btn');
-    const onProgress = (current, total) => {
-      if (btn && total > 5) {
-        btn.innerHTML = `<span>⏳</span> Riga ${current}/${total}`;
-      }
-    };
-    return await eseguiConIndici(table, col, onProgress);
+    // Il vecchio FAB standalone (#ar-pricing-btn) non esiste più dalla unificazione;
+    // il counter per-riga è stato rimosso (il FAB unico #ar-qr-fab-btn chiude il menu al click).
+    return await eseguiConIndici(table, col, null);
   }
 
   function shrinkDescriptionColumn(table, col) {
