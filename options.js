@@ -37,6 +37,7 @@ function loadSettings() {
     document.getElementById('backendUrl').value = s.backendUrl;
     document.getElementById('apiKey').value = s.apiKey;
     document.getElementById('overrideCliforNumero').value = s.overrideCliforNumero;
+    document.getElementById('fallbackCliforNumero').value = s.fallbackCliforNumero;
     clearAllErrors();
   });
 }
@@ -107,6 +108,7 @@ function saveSettings() {
     backendUrl:            document.getElementById('backendUrl').value.trim(),
     apiKey:                document.getElementById('apiKey').value.trim(),
     overrideCliforNumero:  getNum('overrideCliforNumero'),
+    fallbackCliforNumero:  Math.max(0, Math.floor(getNum('fallbackCliforNumero') || 5)),
   };
   chrome.storage.local.set(settings, () => flashStatus('Impostazioni salvate con successo!', false));
 }

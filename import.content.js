@@ -1,10 +1,19 @@
-// import.content.js — AR AUTO — Qricambi v1.0.0 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.1.1 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.0.0]";
+  const TAG = "[QUOTE-IMPORT v1.1.1]";
   console.log(TAG, "content script loaded (isolated)");
+
+  // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
+  // Inizializzato subito; se handleClick() viene invocato prima del callback
+  // (improbabile ma possibile), usa comunque il default sicuro.
+  let FALLBACK_CLIFOR_NUMERO = 5;
+  chrome.storage.local.get({ fallbackCliforNumero: 5 }, ({ fallbackCliforNumero }) => {
+    FALLBACK_CLIFOR_NUMERO = fallbackCliforNumero;
+    console.log(TAG, "fallbackCliforNumero loaded:", FALLBACK_CLIFOR_NUMERO);
+  });
 
   // ── 1. Listener postMessage dal main-world script ─────────────────────
   window.addEventListener("message", (event) => {
@@ -74,8 +83,6 @@
       itemsCount: payload.items.length,
       total: payload.total || 0,
     };
-
-    const FALLBACK_CLIFOR_NUMERO = 5;
 
     async function postQuote(body) {
       const res = await fetch(cfg.backendUrl, {
