@@ -1,7 +1,7 @@
 // defaults.js — single source of truth per l'estensione unificata "AR AUTO — Qricambi".
 // Caricato prima di fab.js / pricing.content.js / import.content.js (content scripts)
 // e di options.js / popup.js (pagine estensione).
-// Version: 1.0.0
+// Version: 1.1.1
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,
@@ -18,6 +18,7 @@ const DEFAULTS = {
   backendUrl: "http://100.86.223.69:5008/api/quote-import",
   apiKey: "",
   overrideCliforNumero: 0,  // 0 = nessun override (usa matching automatico)
+  fallbackCliforNumero: 5,  // cliente generico SIRJ se il matching automatico fallisce (issue #10)
   // ── FAB injection (usate da fab.js) ─────────────────────────────────
   fabZIndex: 1000000,
   injectionMaxAttempts: 8,

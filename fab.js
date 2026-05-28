@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.0.0]';
+  const TAG = '[AR-QR-FAB v1.1.1]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
