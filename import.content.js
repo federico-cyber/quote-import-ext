@@ -3,7 +3,7 @@
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.1.1]";
+  const TAG = "[QUOTE-IMPORT v1.1.4]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────

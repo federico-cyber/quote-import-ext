@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.1.3]';
+  const TAG = '[AR-QR-FAB v1.1.4]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
@@ -47,6 +47,7 @@
       font-weight: 500; letter-spacing: 0.04em;
     }
     #ar-qr-menu-both:hover  { border-color: #47c8ff; color: #47c8ff; }
+    #ar-qr-menu-undo:hover:not(:disabled) { border-color: #fb923c; color: #fb923c; }
   `;
 
   // ── Elementi ──────────────────────────────────────────────────────
@@ -55,6 +56,7 @@
   fab.innerHTML = `
     <div id="ar-qr-fab-menu">
       <button class="ar-qr-menu-item" id="ar-qr-menu-pricing">⚡ Applica Pricing <span class="kbd">Alt+⇧+P</span></button>
+      <button class="ar-qr-menu-item" id="ar-qr-menu-undo" disabled>↩ Annulla Pricing</button>
       <button class="ar-qr-menu-item" id="ar-qr-menu-import">→ Importa in SIRJ <span class="kbd">Alt+⇧+I</span></button>
       <button class="ar-qr-menu-item" id="ar-qr-menu-both">⚡→ Pricing + Import <span class="kbd">Alt+⇧+B</span></button>
     </div>
@@ -84,6 +86,25 @@
   bindMenuItem('#ar-qr-menu-pricing', 'onPricing');
   bindMenuItem('#ar-qr-menu-import', 'onImport');
   bindMenuItem('#ar-qr-menu-both', 'onBoth');
+
+  // ── ANNULLA (v1.1.4): voce disabilitata finché non c'è uno snapshot ──
+  // setUndoEnabled è chiamato da pricing.content.js dopo un Applica riuscito
+  // e dopo un Annulla. Binding dedicato (non bindMenuItem) perché lo stato
+  // finale del bottone lo decide onUndo via setUndoEnabled, non un reset fisso.
+  window.__AR_QRICAMBI.setUndoEnabled = function (enabled) {
+    const item = fab.querySelector('#ar-qr-menu-undo');
+    if (item) item.disabled = !enabled;
+  };
+  fab.querySelector('#ar-qr-menu-undo').addEventListener('click', async (e) => {
+    fab.classList.remove('open');
+    const item = e.currentTarget;
+    if (item.disabled) return;
+    const handler = window.__AR_QRICAMBI.onUndo;
+    if (typeof handler !== 'function') { console.warn(TAG, 'onUndo non registrato'); return; }
+    item.disabled = true; // previene doppio click; lo stato finale lo imposta onUndo
+    try { await handler(); }
+    catch (err) { console.error(TAG, 'onUndo errore:', err); item.disabled = false; }
+  });
 
   // ── Handler combinato pricing → wait → import (v1.1.2) ────────────
   // Il PATCH /api/Quote scatta SOLO dopo che Vue ha riconciliato gli input

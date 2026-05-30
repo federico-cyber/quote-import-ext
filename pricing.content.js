@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.1.3]';
+  const TAG = '[AR-PRICING v1.1.4]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -507,6 +507,13 @@
 
   let S = { ...DEFAULTS };
 
+  // ── UNDO STATE (v1.1.4) ───────────────────────────────────
+  // Snapshot dell'ultima applicazione: per ogni riga toccata, i riferimenti
+  // agli <input> e il loro valore PRIMA della scrittura. setUndoEnabled è
+  // definito da fab.js (cabla la voce di menu "↩ Annulla Pricing").
+  let lastSnapshot = { entries: [] };
+  let undoInProgress = false; // sospende onTableInput durante il ripristino
+
   async function loadSettings() {
     return new Promise((resolve) => {
       if (!chrome || !chrome.storage || !chrome.storage.local) {
@@ -585,6 +592,11 @@
     } catch (e) {
       console.error(TAG, 'Errore esecuzione pricing:', e);
       showToast(`<b>Errore</b><br><span class="m">${escHtml(e.message)}</span>`, 'error');
+    } finally {
+      // v1.1.4: ANNULLA disponibile solo se l'applicazione ha prodotto uno snapshot
+      if (window.__AR_QRICAMBI.setUndoEnabled) {
+        window.__AR_QRICAMBI.setUndoEnabled(lastSnapshot.entries.length > 0);
+      }
     }
   };
 
@@ -639,6 +651,7 @@
     tableListenerActive = true;
 
     async function onTableInput(e) {
+      if (undoInProgress) return; // v1.1.4: non ricalcolare durante il ripristino
       const input = e.target;
       if (input.tagName !== 'INPUT') return;
 
@@ -781,6 +794,7 @@
     let ok = 0, skip = 0;
     const skipReasons = { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 };
     const dettagli = [];
+    lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
     for (let ri = 0; ri < allTr.length; ri++) {
       if (onProgress) onProgress(ri + 1, allTr.length);
@@ -805,6 +819,12 @@
         skip++; skipReasons.noScontoInp++;
         continue;
       }
+
+      // v1.1.4: cattura i valori ORIGINALI prima di qualsiasi scrittura (per ANNULLA)
+      const venditaInp = (col.vendita != null) ? inputDiCella(tds[col.vendita]) : null;
+      const snapFields = [{ input: scontoInp, orig: scontoInp.value }];
+      if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
+      if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });
 
       let regola, scontoCliente, listinoFin, prezzoClienteTarget;
       let successo = false;
@@ -860,11 +880,8 @@
       }
 
       if (successo) {
-        // Aggiorna Vendita se possibile
-        if (col.vendita != null) {
-          const venditaInp = inputDiCella(tds[col.vendita]);
-          if (venditaInp) await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
-        }
+        // Aggiorna Vendita se possibile (venditaInp già risolto sopra)
+        if (venditaInp) await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
 
         // Calcolo Utile e Color Coding
         const utileUnitario = prezzoClienteTarget - acquisto;
@@ -894,6 +911,7 @@
 
         ok++;
         dettagli.push({ regola, utileTotale, ricaricoEffettivo });
+        lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
         skip++; skipReasons.setFailed++;
       }
@@ -901,5 +919,77 @@
 
     return { tot: ok + skip, ok, skip, skipReasons, dettagli };
   }
+
+  // ── ANNULLA: ripristina l'ultima applicazione (v1.1.4) ────
+  // Riscrive i valori originali catturati in lastSnapshot riusando setVueInput.
+  // I listener live restano sospesi (undoInProgress) per tutta la durata, così
+  // non ricalcolano Utile/colori sui valori intermedi; reset visivo esplicito.
+  async function annullaPricing() {
+    if (!lastSnapshot || !lastSnapshot.entries.length) {
+      return { restored: 0, skipped: 0 };
+    }
+    undoInProgress = true;
+    let restored = 0, skipped = 0;
+    try {
+      for (let i = lastSnapshot.entries.length - 1; i >= 0; i--) {
+        const entry = lastSnapshot.entries[i];
+        let anyRestored = false;
+        for (const f of entry.fields) {
+          if (f.input && f.input.isConnected) {
+            await setVueInput(f.input, f.orig);
+            anyRestored = true;
+          }
+        }
+        if (anyRestored) {
+          restored++;
+          const utileCell = (entry.tr && entry.tr.querySelector)
+            ? entry.tr.querySelector('.ar-utile-cell') : null;
+          if (utileCell) { utileCell.textContent = '-'; utileCell.style.color = '#fff'; }
+          if (entry.tr && entry.tr.classList) {
+            entry.tr.classList.remove('ar-row-low', 'ar-row-high', 'ar-flash-a', 'ar-flash-b', 'ar-flash-c');
+          }
+        } else {
+          skipped++;
+        }
+      }
+      // Lascia assestare eventuali handler in coda prima di riattivarli
+      for (let i = 0; i < 6; i++) { await new Promise(r => requestAnimationFrame(r)); }
+    } finally {
+      undoInProgress = false;
+    }
+    lastSnapshot = { entries: [] }; // snapshot consumato
+    return { restored, skipped };
+  }
+
+  // onUndo: cablato dalla voce di menu "↩ Annulla Pricing" (fab.js)
+  window.__AR_QRICAMBI.onUndo = async function () {
+    try {
+      const res = await annullaPricing();
+      if (res.restored === 0) {
+        showToast(`
+          <b>Nessuna riga da ripristinare</b><br>
+          <span class="m">Le righe dell'ultima applicazione non sono
+          più presenti nella pagina.</span>
+        `, 'error');
+      } else {
+        const label = res.restored !== 1 ? 'righe ripristinate' : 'riga ripristinata';
+        showToast(
+          `<b>↩ ${parseInt(res.restored, 10)} ${label}</b><br>` +
+          (res.skipped ? toastLine('r', 'Saltate (non più in pagina)', res.skipped) : '') +
+          `<span class="m">Valori riportati a prima del pricing.</span>`,
+          'success'
+        );
+        const summary = document.getElementById('ar-pricing-summary');
+        if (summary) summary.classList.remove('visible');
+      }
+    } catch (err) {
+      console.error(TAG, 'Errore annullamento pricing:', err);
+      showToast(`<b>Errore</b><br><span class="m">${escHtml(err.message)}</span>`, 'error');
+    } finally {
+      if (window.__AR_QRICAMBI.setUndoEnabled) {
+        window.__AR_QRICAMBI.setUndoEnabled(lastSnapshot.entries.length > 0);
+      }
+    }
+  };
 
 })();
