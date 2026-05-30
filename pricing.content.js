@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.0.0]';
+  const TAG = '[AR-PRICING v1.1.2]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -101,20 +101,32 @@
     }
 
     #ar-pricing-summary {
+      position: fixed;
+      bottom: 210px;
+      right: 24px;
+      z-index: 999999;
       background: rgba(22, 24, 28, 0.95);
       backdrop-filter: blur(8px);
       border: 1px solid #e8ff47;
       border-radius: 12px;
       padding: 10px 14px;
-      margin-bottom: 6px;
       box-shadow: 0 12px 40px rgba(0,0,0,0.6);
       display: none;
       animation: ar-fade .3s cubic-bezier(0.4, 0, 0.2, 1);
       min-width: 200px;
-      /* Spostiamo un po' a sinistra per non coprire i tasti di sistema */
-      margin-right: 20px;
+      cursor: move;
+      user-select: none;
     }
     #ar-pricing-summary.visible { display: block; }
+    #ar-pricing-summary.ar-dragging { transition: none !important; opacity: 0.85; }
+    #ar-pricing-summary .ar-drag-handle {
+      font-size: 9px;
+      color: #6b7280;
+      text-align: center;
+      letter-spacing: 0.3em;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
     #ar-pricing-summary .label { font-size: 9px; color: #9ca3af; text-transform: uppercase; font-weight: 600; letter-spacing: 0.08em; margin-bottom: 2px; }
     #ar-pricing-summary .value { font-size: 22px; font-weight: 800; color: #e8ff47; line-height: 1.1; }
     #ar-pricing-summary .sub { font-size: 10px; color: #4ade80; margin-top: 2px; font-weight: 500; }
@@ -125,6 +137,7 @@
   pricingUi.id = 'ar-pricing-ui';
   pricingUi.innerHTML = `
     <div id="ar-pricing-summary">
+      <div class="ar-drag-handle" title="Trascina per spostare">⋮⋮⋮</div>
       <div class="label">Guadagno Totale Stimato</div>
       <div class="value" id="ar-total-value">0,00 €</div>
       <div id="ar-total-details" class="sub">0 righe elaborate</div>
@@ -146,11 +159,82 @@
         document.body.appendChild(pricingUi);
         console.log(TAG, 'UI pricing iniettata nel DOM');
       }
+      // v1.1.1: drag-and-drop + posizione persistente del summary
+      const summary = document.getElementById('ar-pricing-summary');
+      if (summary && !summary.dataset.dragInit) {
+        summary.dataset.dragInit = '1';
+        enableSummaryDrag(summary);
+        loadSummaryPosition(summary);
+      }
       return true;
     } catch (e) {
       console.error(TAG, 'Errore injection UI pricing:', e);
       return false;
     }
+  }
+
+  // ── DRAG & DROP SUMMARY (v1.1.1) ──────────────────────────
+  // Posizione persistita in chrome.storage.local sotto 'summaryPosition'.
+  // Default CSS: bottom-right. Quando trascinato si passa a top/left.
+  function enableSummaryDrag(el) {
+    let dragging = false, offX = 0, offY = 0;
+
+    el.addEventListener('mousedown', (e) => {
+      dragging = true;
+      const rect = el.getBoundingClientRect();
+      offX = e.clientX - rect.left;
+      offY = e.clientY - rect.top;
+      el.classList.add('ar-dragging');
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const left = Math.max(0, Math.min(window.innerWidth  - w, e.clientX - offX));
+      const top  = Math.max(0, Math.min(window.innerHeight - h, e.clientY - offY));
+      el.style.left = left + 'px';
+      el.style.top  = top  + 'px';
+      el.style.right  = 'auto';
+      el.style.bottom = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove('ar-dragging');
+      saveSummaryPosition(el);
+    });
+  }
+
+  function saveSummaryPosition(el) {
+    if (!chrome || !chrome.storage || !chrome.storage.local) return;
+    if (!el.style.left || !el.style.top) return;
+    chrome.storage.local.set({
+      summaryPosition: { left: el.style.left, top: el.style.top }
+    }, () => {
+      console.log(TAG, 'Posizione summary salvata:', el.style.left, el.style.top);
+    });
+  }
+
+  function loadSummaryPosition(el) {
+    if (!chrome || !chrome.storage || !chrome.storage.local) return;
+    chrome.storage.local.get('summaryPosition', (data) => {
+      const pos = data && data.summaryPosition;
+      if (!pos || !pos.left || !pos.top) return;
+      // Clamp al viewport corrente (la finestra può essere stata ridimensionata)
+      const left = parseInt(pos.left, 10);
+      const top  = parseInt(pos.top,  10);
+      if (isNaN(left) || isNaN(top)) return;
+      const w = el.offsetWidth  || 220;
+      const h = el.offsetHeight || 90;
+      const clampedLeft = Math.max(0, Math.min(window.innerWidth  - w, left));
+      const clampedTop  = Math.max(0, Math.min(window.innerHeight - h, top));
+      el.style.left = clampedLeft + 'px';
+      el.style.top  = clampedTop  + 'px';
+      el.style.right  = 'auto';
+      el.style.bottom = 'auto';
+    });
   }
 
   if (!injectPricingUi()) {
