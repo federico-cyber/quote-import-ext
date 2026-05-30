@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.1.1]';
+  const TAG = '[AR-QR-FAB v1.1.3]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
@@ -42,6 +42,11 @@
     }
     #ar-qr-fab-btn:hover { background: #d4eb3a; transform: translateY(-2px); }
     #ar-qr-fab-btn:active { transform: translateY(0); }
+    .ar-qr-menu-item .kbd {
+      font-size: 10px; opacity: 0.45; margin-left: 10px;
+      font-weight: 500; letter-spacing: 0.04em;
+    }
+    #ar-qr-menu-both:hover  { border-color: #47c8ff; color: #47c8ff; }
   `;
 
   // ── Elementi ──────────────────────────────────────────────────────
@@ -49,8 +54,9 @@
   fab.id = 'ar-qr-fab';
   fab.innerHTML = `
     <div id="ar-qr-fab-menu">
-      <button class="ar-qr-menu-item" id="ar-qr-menu-pricing">⚡ Applica Pricing</button>
-      <button class="ar-qr-menu-item" id="ar-qr-menu-import">→ Importa in SIRJ</button>
+      <button class="ar-qr-menu-item" id="ar-qr-menu-pricing">⚡ Applica Pricing <span class="kbd">Alt+⇧+P</span></button>
+      <button class="ar-qr-menu-item" id="ar-qr-menu-import">→ Importa in SIRJ <span class="kbd">Alt+⇧+I</span></button>
+      <button class="ar-qr-menu-item" id="ar-qr-menu-both">⚡→ Pricing + Import <span class="kbd">Alt+⇧+B</span></button>
     </div>
     <button id="ar-qr-fab-btn"><span>≡</span> AR AUTO</button>
   `;
@@ -77,6 +83,53 @@
   }
   bindMenuItem('#ar-qr-menu-pricing', 'onPricing');
   bindMenuItem('#ar-qr-menu-import', 'onImport');
+  bindMenuItem('#ar-qr-menu-both', 'onBoth');
+
+  // ── Handler combinato pricing → wait → import (v1.1.2) ────────────
+  // Il PATCH /api/Quote scatta SOLO dopo che Vue ha riconciliato gli input
+  // modificati da pricing. Attendiamo un breve delay per dare a injected.js
+  // il tempo di intercettarlo e popolare chrome.storage.local.lastPatchPayload.
+  window.__AR_QRICAMBI.onBoth = async function () {
+    const onPricing = window.__AR_QRICAMBI.onPricing;
+    const onImport  = window.__AR_QRICAMBI.onImport;
+    if (typeof onPricing !== 'function' || typeof onImport !== 'function') {
+      console.warn(TAG, 'onBoth: handler mancanti', { onPricing: !!onPricing, onImport: !!onImport });
+      return;
+    }
+    console.log(TAG, 'sequenza pricing → wait → import avviata');
+    try {
+      await onPricing();
+      await new Promise((r) => setTimeout(r, DEFAULTS.bothWaitMs || 1800));
+      await onImport();
+    } catch (e) {
+      console.error(TAG, 'onBoth errore:', e);
+    }
+  };
+
+  // ── Shortcut tastiera (v1.1.2) ────────────────────────────────────
+  // Alt+Shift+P → Pricing, Alt+Shift+I → Import, Alt+Shift+B → Both.
+  // Ignora se l'utente sta scrivendo in input/textarea/contentEditable.
+  document.addEventListener('keydown', (e) => {
+    if (!e.altKey || !e.shiftKey) return;
+    const t = e.target;
+    const isTyping = t && (
+      t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
+    );
+    if (isTyping) return;
+    const key = (e.key || '').toLowerCase();
+    const map = { p: 'onPricing', i: 'onImport', b: 'onBoth' };
+    const handlerName = map[key];
+    if (!handlerName) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const handler = window.__AR_QRICAMBI[handlerName];
+    if (typeof handler === 'function') {
+      console.log(TAG, 'shortcut', key.toUpperCase(), '→', handlerName);
+      handler();
+    } else {
+      console.warn(TAG, 'shortcut', key, ': handler', handlerName, 'non registrato');
+    }
+  }, true);
 
   // ── Injection con exponential backoff ─────────────────────────────
   function injectFab() {

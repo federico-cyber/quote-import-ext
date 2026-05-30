@@ -24,4 +24,8 @@ const DEFAULTS = {
   injectionMaxAttempts: 8,
   injectionInitialDelayMs: 200,
   injectionMaxDelayMs: 30000,
+  // ── Pricing+Import combinato (fab.js onBoth) ────────────────────────
+  // Attesa dopo pricing prima di lanciare l'import: il PATCH /api/Quote
+  // intercettato da injected.js deve aver popolato lastPatchPayload.
+  bothWaitMs: 1800,
 };
