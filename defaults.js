@@ -1,7 +1,7 @@
 // defaults.js — single source of truth per l'estensione unificata "AR AUTO — Qricambi".
 // Caricato prima di fab.js / pricing.content.js / import.content.js (content scripts)
 // e di options.js / popup.js (pagine estensione).
-// Version: 1.1.4
+// Version: 1.1.5
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,

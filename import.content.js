@@ -1,9 +1,9 @@
-// import.content.js — AR AUTO — Qricambi v1.1.1 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.1.5 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.1.4]";
+  const TAG = "[QUOTE-IMPORT v1.1.5]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
@@ -130,8 +130,14 @@
         const status = isFallback ? "ok-fallback" : "ok";
         await appendToHistory({ ...baseRecord, status,
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
-        const suffix = isFallback ? ` (override cliente #${usedOverride})` : "";
-        toast(`✓ Importato come PR3 ${body.sirj_numero}/${body.sirj_anno}${suffix}`, "ok");
+        const suffix = isFallback ? `Override cliente SIRJ #${usedOverride}` : "";
+        successModal({
+          numero: body.sirj_numero,
+          anno: body.sirj_anno,
+          customer: baseRecord.customer,
+          car: baseRecord.car,
+          suffix,
+        });
       } else if (res.status === 409) {
         await appendToHistory({ ...baseRecord, status: "dup",
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
@@ -164,6 +170,83 @@
     `;
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 6000);
+  }
+
+  // Modal centrale di conferma import riuscito (v1.1.5).
+  // A differenza del toast (auto-dismiss 6s, angolo), questo oscura la pagina
+  // e resta finché l'utente non clicca OK / preme Invio o Esc / clicca fuori:
+  // impossibile non vedere il numero PR3 generato.
+  function successModal({ numero, anno, customer, car, suffix }) {
+    const GREEN = "#2e7d32";
+    const overlay = document.createElement("div");
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:2147483647;
+      background:rgba(0,0,0,0.55);
+      display:flex;align-items:center;justify-content:center;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    `;
+
+    const card = document.createElement("div");
+    card.style.cssText = `
+      background:#fff;border-radius:14px;border-top:6px solid ${GREEN};
+      padding:28px 36px 24px;max-width:440px;width:90%;
+      box-shadow:0 12px 40px rgba(0,0,0,0.4);text-align:center;
+    `;
+
+    const check = document.createElement("div");
+    check.textContent = "✓";
+    check.style.cssText = `
+      width:64px;height:64px;margin:0 auto 12px;border-radius:50%;
+      background:${GREEN};color:#fff;font-size:38px;line-height:64px;font-weight:700;
+    `;
+
+    const title = document.createElement("div");
+    title.textContent = "IMPORTATO IN SIRJ";
+    title.style.cssText = `
+      font-size:15px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:6px;
+    `;
+
+    const num = document.createElement("div");
+    num.textContent = `PR3 ${numero}/${anno}`;
+    num.style.cssText = `
+      font-size:34px;font-weight:800;color:${GREEN};margin:4px 0 14px;
+    `;
+
+    const meta = document.createElement("div");
+    meta.textContent = [customer, car].filter(Boolean).join(" · ");
+    meta.style.cssText = `font-size:14px;color:#666;margin-bottom:4px;`;
+
+    const btn = document.createElement("button");
+    btn.textContent = "OK";
+    btn.style.cssText = `
+      margin-top:18px;background:${GREEN};color:#fff;border:none;
+      padding:10px 40px;border-radius:8px;font-size:15px;font-weight:700;
+      cursor:pointer;
+    `;
+
+    card.append(check, title, num, meta);
+    if (suffix) {
+      const note = document.createElement("div");
+      note.textContent = suffix;
+      note.style.cssText = `font-size:12px;color:#ef6c00;margin-top:4px;`;
+      card.append(note);
+    }
+    card.append(btn);
+    overlay.append(card);
+
+    function close() {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+    }
+    function onKey(e) {
+      if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); close(); }
+    }
+    btn.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.addEventListener("keydown", onKey, true);
+
+    document.body.appendChild(overlay);
+    btn.focus();
   }
 
   // ── 3. Registrazione handler per il menu FAB ────────────────────────
