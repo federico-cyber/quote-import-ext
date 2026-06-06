@@ -7,7 +7,7 @@
   "host_permissions": [
     "*://*.qricambi.com/*",
     "http://100.86.223.69:5008/*",
-    "http://192.168.1.49:5008/*",
+    "http://192.168.1.41:5008/*",
     "http://localhost:5008/*"
   ],
   "icons": {
