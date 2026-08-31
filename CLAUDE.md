@@ -20,7 +20,7 @@ Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, posta il payload via `postMessage` |
+| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage` |
 | `defaults.js` | ISOLATED, document_idle | Unico `const DEFAULTS` flat (pricing + backend + injection) |
 | `fab.js` | ISOLATED, document_idle | Inietta l'unico FAB + menu, espone `window.__AR_QRICAMBI = { onPricing, onImport }` |
 | `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
@@ -37,12 +37,37 @@ lo raccoglie dal lato ISOLATED per effettuare la chiamata al backend.
 `fab.js` carica per primo fra i tre script ISOLATED dipendenti da `DEFAULTS` e
 crea `window.__AR_QRICAMBI`; i due content script vi registrano il loro handler.
 
+### Conferma del salvataggio Qricambi (arauto#1990)
+
+`injected.js` pubblica il payload **solo dopo** che Qricambi ha confermato la PATCH
+(`res.ok` per `fetch`, `status` 2xx dentro il listener `load` per XHR). Su risposta
+negativa, abort o errore di rete non pubblica nulla: un preventivo mai salvato su
+Qricambi non deve poter finire in SIRJ come PR3.
+
+**Non spostare `maybePost`/`publishConfirmed` prima della risposta** — era il difetto
+originale: veniva chiamata sull'*intento* di scrittura.
+
+Conseguenza voluta: dopo una PATCH rifiutata, `lastPatchPayload` conserva l'ultimo
+stato **confermato dal server**, che è esattamente ciò che Qricambi ha davvero salvato.
+Importarlo resta corretto.
+
+Il *contenuto* pubblicato è invariato rispetto a prima del fix: cambia solo *quando*.
+
 ### Storage
 
 Tutto su `chrome.storage.local`:
 - parametri pricing + `backendUrl` + `apiKey` (config, gestita da `options.html`);
-- `lastPatchPayload` (ultimo payload intercettato da `injected.js`);
+- `lastPatchPayload` (ultimo payload intercettato da `injected.js`, **già confermato
+  da Qricambi**);
 - `importHistory` (array FIFO, cap 50 — vedi sotto).
+
+## Test
+
+Nessuna CI su questo repo. Test node puri, zero dipendenze:
+
+```
+node tests/test_injected_confirm.js
+```
 
 ### setVueInput (in `pricing.content.js`)
 
