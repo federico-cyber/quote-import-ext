@@ -67,7 +67,16 @@ Nessuna CI su questo repo. Test node puri, zero dipendenze:
 
 ```
 node tests/test_injected_confirm.js
+node tests/test_calcola_riga.js
 ```
+
+### Sconto sempre intero 0-99 (#21)
+
+`calcolaRiga()` (pura, in `pricing.content.js`) restituisce uno sconto cliente
+intero di 1-2 cifre in ogni regola, anche con parametri di configurazione non
+interi. Dopo aver scritto la Vendita (al centesimo) lo sconto viene **riscritto
+per ultimo**: Qricambi ricalcola lo sconto dalla Vendita arrotondata e lo
+lascerebbe con decimali (44,99 invece di 45). Non togliere la seconda scrittura.
 
 ### setVueInput (in `pricing.content.js`)
 
