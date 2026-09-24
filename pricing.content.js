@@ -901,7 +901,9 @@
           await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
           // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita arrotondata
           // al centesimo → 44,99 invece di 45. Lo sconto intero va scritto per ultimo.
-          await setVueInput(scontoInp, scontoCliente);
+          if (!await setVueInput(scontoInp, scontoCliente)) {
+            console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
+          }
         }
 
         // Calcolo Utile e Color Coding
