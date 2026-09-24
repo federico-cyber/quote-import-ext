@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.1.6]';
+  const TAG = '[AR-PRICING v1.1.8]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -781,6 +781,54 @@
     });
   }
 
+  // ── CALCOLO PREZZO RIGA (pura, testata da tests/test_calcola_riga.js) ──
+  // Lo sconto cliente è sempre un intero di 1-2 cifre (0-99), anche con
+  // uiRoundStep / regACapValue / regBDiscount configurati non interi (#21).
+  function scontoIntero(x) {
+    return Math.min(99, Math.max(0, Math.round(x)));
+  }
+
+  function calcolaRiga(acquisto, listino, S) {
+    let regola, scontoCliente, listinoFin;
+
+    if (listino && listino > 0) {
+      const scontoForn = (1 - acquisto / listino) * 100;
+      const step = S.uiRoundStep > 0 ? S.uiRoundStep : 1; // Previene modulo/div zero
+      listinoFin = listino;
+
+      if (scontoForn > S.regCThreshold) {
+        // REGOLA C: ricarico sul netto "in avanti"
+        // Prezzo = acquisto * (1 + 77/100)
+        const targetPrice = acquisto * (1 + S.regCMarkup / 100);
+        const scontoRaw = (1 - targetPrice / listino) * 100;
+
+        // Arrotondo lo sconto al ribasso (floor): prezzo cliente più alto → più margine.
+        // Il floor esterno tiene la direzione anche con uno step non intero.
+        scontoCliente = Math.floor(Math.floor(scontoRaw / step) * step);
+        regola = 'C';
+      } else if (scontoForn > S.regACapThreshold) {
+        // REGOLA A CAP
+        scontoCliente = S.regACapValue;
+        regola = 'A';
+      } else {
+        // REGOLA A NORMALE
+        const diff = scontoForn - S.regADelta;
+        scontoCliente = Math.round(diff / step) * step;
+        regola = 'A';
+      }
+    } else {
+      // REGOLA B: listino fittizio al centesimo, lo stesso valore scritto nel campo
+      listinoFin = Math.round(acquisto * S.regBMultiplier * 100) / 100;
+      scontoCliente = S.regBDiscount;
+      regola = 'B';
+    }
+
+    scontoCliente = scontoIntero(scontoCliente);
+    const prezzoClienteTarget = listinoFin * (1 - scontoCliente / 100);
+    return { regola, scontoCliente, listinoFin, prezzoClienteTarget };
+  }
+  // ── fine calcolaRiga ──
+
   async function eseguiConIndici(table, col, onProgress) {
     const minCols = Math.max(
       col.acquisto ?? 0,
@@ -826,47 +874,15 @@
       if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
       if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });
 
-      let regola, scontoCliente, listinoFin, prezzoClienteTarget;
+      const { regola, scontoCliente, listinoFin, prezzoClienteTarget } =
+        calcolaRiga(acquisto, listino, S);
       let successo = false;
 
-      if (listino && listino > 0) {
-        const scontoForn = (1 - acquisto / listino) * 100;
-        const step = S.uiRoundStep > 0 ? S.uiRoundStep : 1; // Previene modulo/div zero
-
-        if (scontoForn > S.regCThreshold) {
-          // REGOLA C: ricarico sul netto "in avanti"
-          // Prezzo = acquisto * (1 + 77/100)
-          const targetPrice = acquisto * (1 + S.regCMarkup / 100);
-          const scontoRaw = (1 - targetPrice / listino) * 100;
-
-          // Arrotondo lo sconto al ribasso (floor): prezzo cliente più alto → più margine.
-          scontoCliente = Math.floor(scontoRaw / step) * step;
-          prezzoClienteTarget = listino * (1 - scontoCliente / 100);
-          listinoFin = listino;
-          regola = 'C';
-        } else if (scontoForn > S.regACapThreshold) {
-          // REGOLA A CAP
-          scontoCliente = S.regACapValue;
-          prezzoClienteTarget = listino * (1 - scontoCliente / 100);
-          listinoFin = listino;
-          regola = 'A';
-        } else {
-          // REGOLA A NORMALE
-          const diff = scontoForn - S.regADelta;
-          scontoCliente = Math.max(0, Math.round(diff / step) * step);
-          prezzoClienteTarget = listino * (1 - scontoCliente / 100);
-          listinoFin = listino;
-          regola = 'A';
-        }
+      if (regola !== 'B') {
         successo = await setVueInput(scontoInp, scontoCliente);
       } else {
         // REGOLA B — aggiornamento atomico: listino + sconto
         // Se sconto fallisce dopo che listino è già stato scritto, rollback.
-        listinoFin = acquisto * S.regBMultiplier;
-        scontoCliente = S.regBDiscount;
-        prezzoClienteTarget = listinoFin * (1 - scontoCliente / 100);
-        regola = 'B';
-
         const listinoOrigValue = listinoInp ? listinoInp.value : null;
         if (listinoInp) await setVueInput(listinoInp, listinoFin.toFixed(2));
 
@@ -881,7 +897,14 @@
 
       if (successo) {
         // Aggiorna Vendita se possibile (venditaInp già risolto sopra)
-        if (venditaInp) await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
+        if (venditaInp) {
+          await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
+          // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita arrotondata
+          // al centesimo → 44,99 invece di 45. Lo sconto intero va scritto per ultimo.
+          if (!await setVueInput(scontoInp, scontoCliente)) {
+            console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
+          }
+        }
 
         // Calcolo Utile e Color Coding
         const utileUnitario = prezzoClienteTarget - acquisto;
