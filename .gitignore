@@ -1,1 +1,4 @@
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/verify/
+!.claude/skills/verify/SKILL.md
