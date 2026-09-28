@@ -74,9 +74,18 @@ node tests/test_calcola_riga.js
 
 `calcolaRiga()` (pura, in `pricing.content.js`) restituisce uno sconto cliente
 intero di 1-2 cifre in ogni regola, anche con parametri di configurazione non
-interi. Dopo aver scritto la Vendita (al centesimo) lo sconto viene **riscritto
-per ultimo**: Qricambi ricalcola lo sconto dalla Vendita arrotondata e lo
-lascerebbe con decimali (44,99 invece di 45). Non togliere la seconda scrittura.
+interi.
+
+**Listino ritoccato al centesimo (#24).** Qricambi tiene la Vendita al centesimo
+e ne ricava lo sconto già nella UI (il payload PATCH porta 44,97): se
+listino × (1 − sconto) non cade sul centesimo (8,74 × 0,55 = 4,807) nessun ordine
+di scrittura salva uno sconto intero. Per questo `calcolaRiga()` alza il listino
+del minimo necessario perché listino × (100 − sconto) sia divisibile per 100
+(< 0,20 €, il margine non scende mai; se per quello sconto servirebbe di più usa
+lo sconto intero più vicino) e il listino viene scritto in **ogni** regola, non
+solo in B. Decisione di Fede (28/09): solo con Alt+Shift+P, le righe prezzate a
+mano restano come le scrive lui. La riscrittura dello sconto dopo la Vendita
+resta come rete di sicurezza: non toglierla.
 
 ### setVueInput (in `pricing.content.js`)
 

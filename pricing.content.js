@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.1.8]';
+  const TAG = '[AR-PRICING v1.1.9]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -564,7 +564,7 @@
           `<b>0 righe aggiornate</b><br>` +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
           `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
           'error'
@@ -582,7 +582,7 @@
           (rC ? toastLine('o', 'Regola C', rC) : '') +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback Regola B', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
           `<span class="m">Verifica e salva il preventivo.</span>`,
           'success'
@@ -824,8 +824,36 @@
     }
 
     scontoCliente = scontoIntero(scontoCliente);
-    const prezzoClienteTarget = listinoFin * (1 - scontoCliente / 100);
+
+    // #24: Qricambi tiene la Vendita al centesimo e ne ricava lo sconto, quindi
+    // uno sconto intero resta intero solo se listino × (1 − sconto) cade sul
+    // centesimo (8,74 × 0,55 = 4,807 → salva 4,81 → sconto 44,97). Alzo il
+    // listino del minimo necessario (< 0,20 €, il margine non scende mai); se
+    // per quello sconto servirebbe di più, provo lo sconto intero più vicino,
+    // prima quello più basso.
+    const listinoCent = Math.round(listinoFin * 100);
+    for (const d of [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]) {
+      const s = scontoCliente + d;
+      if (s < 0 || s > 99) continue;
+      const cent = listinoAlCentesimo(listinoCent, s);
+      if (cent - listinoCent < RITOCCO_MAX_CENT) {
+        scontoCliente = s;
+        listinoFin = cent / 100;
+        break;
+      }
+    }
+    const prezzoClienteTarget = Math.round(listinoFin * 100) * (100 - scontoCliente) / 10000;
     return { regola, scontoCliente, listinoFin, prezzoClienteTarget };
+  }
+
+  // Più piccolo listino (in centesimi) ≥ listinoCent con listino × (100 − sconto)
+  // divisibile per 100: passo = 100 / MCD(100, 100 − sconto), ≤ 20 per sconti multipli di 5.
+  const RITOCCO_MAX_CENT = 20;
+  function listinoAlCentesimo(listinoCent, sconto) {
+    let a = 100, b = 100 - sconto;
+    while (b) [a, b] = [b, a % b];
+    const passo = 100 / a;
+    return Math.ceil(listinoCent / passo) * passo;
   }
   // ── fine calcolaRiga ──
 
@@ -878,29 +906,29 @@
         calcolaRiga(acquisto, listino, S);
       let successo = false;
 
-      if (regola !== 'B') {
-        successo = await setVueInput(scontoInp, scontoCliente);
-      } else {
-        // REGOLA B — aggiornamento atomico: listino + sconto
-        // Se sconto fallisce dopo che listino è già stato scritto, rollback.
-        const listinoOrigValue = listinoInp ? listinoInp.value : null;
-        if (listinoInp) await setVueInput(listinoInp, listinoFin.toFixed(2));
+      // Listino da scrivere: fittizio in Regola B, ritoccato di qualche centesimo
+      // nelle altre perché la vendita cada sul centesimo (#24).
+      // Aggiornamento atomico listino + sconto: se lo sconto fallisce dopo che il
+      // listino è già stato scritto, rollback.
+      const scriviListino = listinoInp && (regola === 'B' || listinoFin !== listino);
+      const listinoOrigValue = listinoInp ? listinoInp.value : null;
+      if (scriviListino) await setVueInput(listinoInp, listinoFin.toFixed(2));
 
-        successo = await setVueInput(scontoInp, scontoCliente);
-        if (!successo && listinoInp && listinoOrigValue !== null) {
-          console.warn(TAG, `Regola B riga ${ri}: sconto fallito, rollback listino`);
-          await setVueInput(listinoInp, listinoOrigValue);
-          skip++; skipReasons.rollbackB++;
-          continue;
-        }
+      successo = await setVueInput(scontoInp, scontoCliente);
+      if (!successo && scriviListino && listinoOrigValue !== null) {
+        console.warn(TAG, `Regola ${regola} riga ${ri}: sconto fallito, rollback listino`);
+        await setVueInput(listinoInp, listinoOrigValue);
+        skip++; skipReasons.rollbackB++;
+        continue;
       }
 
       if (successo) {
         // Aggiorna Vendita se possibile (venditaInp già risolto sopra)
         if (venditaInp) {
           await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
-          // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita arrotondata
-          // al centesimo → 44,99 invece di 45. Lo sconto intero va scritto per ultimo.
+          // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita; con il
+          // listino ritoccato (#24) la vendita è esatta e lo sconto resta intero.
+          // La riscrittura finale resta come rete di sicurezza.
           if (!await setVueInput(scontoInp, scontoCliente)) {
             console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
           }

@@ -59,11 +59,10 @@ test('regola C: 90% fornitore → ricarico 77 sul netto, floor a 5', () => {
   assert.strictEqual(r.scontoCliente, 80); // raw 82.3 → floor 80
 });
 
-test('regola B: senza listino → listino fittizio al centesimo, sconto 30', () => {
+test('regola B: senza listino → listino fittizio, sconto 30', () => {
   const r = calcolaRiga(12.345, 0, DEF);
   assert.strictEqual(r.regola, 'B');
-  assert.strictEqual(r.listinoFin, 24.69);
-  assert.strictEqual(r.scontoCliente, 30);
+  assert.strictEqual(r.scontoCliente, 30); // listino al centesimo: vedi test #24 regola B
 });
 
 test('regola A: sconto negativo → 0', () => {
@@ -86,6 +85,85 @@ test('sweep acquisto/listino con i default → sempre intero 0-99', () => {
       assertScontoIntero(calcolaRiga(acq, lis, DEF), `acq=${acq} lis=${lis}`);
     }
   }
+});
+
+// ── #24: Qricambi tiene la Vendita al centesimo e ne ricava lo sconto ──
+// Lo sconto intero resta intero solo se listino × (100 − sconto) è divisibile
+// per 100, cioè se la vendita esatta cade sul centesimo.
+function assertVenditaAlCentesimo(r, listinoOrig, ctxMsg) {
+  const cents = Math.round(r.listinoFin * 100);
+  assert.ok(Math.abs(r.listinoFin * 100 - cents) < 1e-6,
+    `listino non al centesimo: ${r.listinoFin} (${ctxMsg})`);
+  assert.strictEqual((cents * (100 - r.scontoCliente)) % 100, 0,
+    `vendita non al centesimo: ${r.listinoFin} × (1 − ${r.scontoCliente}%) (${ctxMsg})`);
+  assert.ok(Math.abs(r.prezzoClienteTarget * 100 - Math.round(r.prezzoClienteTarget * 100)) < 1e-6,
+    `prezzoClienteTarget non al centesimo: ${r.prezzoClienteTarget} (${ctxMsg})`);
+  // Qricambi ricalcola lo sconto dalla vendita: deve tornare l'intero.
+  const scontoRicalcolato = Math.round((1 - r.prezzoClienteTarget / r.listinoFin) * 10000) / 100;
+  assert.strictEqual(scontoRicalcolato, r.scontoCliente,
+    `Qricambi ricalcolerebbe ${scontoRicalcolato} invece di ${r.scontoCliente} (${ctxMsg})`);
+  if (listinoOrig > 0) {
+    const ritocco = cents - Math.round(listinoOrig * 100);
+    assert.ok(ritocco >= 0 && ritocco < 20,
+      `ritocco listino fuori da 0-19 cent: ${ritocco} (${ctxMsg})`);
+  }
+}
+
+test('#24 caso reale: 2,86 / 8,74 → listino 8,80, sconto 45, vendita 4,84', () => {
+  const r = calcolaRiga(2.86, 8.74, DEF);
+  assert.strictEqual(r.scontoCliente, 45);
+  assert.strictEqual(r.listinoFin, 8.80);
+  assert.strictEqual(r.prezzoClienteTarget, 4.84);
+});
+
+test('#24 caso reale: listino 80,25 sconto 50 → 80,26, vendita 40,13', () => {
+  const r = calcolaRiga(24, 80.25, DEF); // fornitore 70% → cliente 50
+  assert.strictEqual(r.scontoCliente, 50);
+  assert.strictEqual(r.listinoFin, 80.26);
+  assert.strictEqual(r.prezzoClienteTarget, 40.13);
+});
+
+test('#24 listino già compatibile → nessun ritocco', () => {
+  const r = calcolaRiga(139.9, 349.75, DEF); // sconto 40, vendita 209,85 esatta
+  assert.strictEqual(r.scontoCliente, 40);
+  assert.strictEqual(r.listinoFin, 349.75);
+  assert.strictEqual(r.prezzoClienteTarget, 209.85);
+});
+
+test('#24 regola B: listino fittizio ritoccato al passo giusto', () => {
+  const r = calcolaRiga(12.345, 0, DEF); // 24,69 × 0,70 = 17,283
+  assert.strictEqual(r.regola, 'B');
+  assert.strictEqual(r.scontoCliente, 30);
+  assert.strictEqual(r.listinoFin, 24.70);
+  assert.strictEqual(r.prezzoClienteTarget, 17.29);
+});
+
+test('#24 sweep con i default → vendita sempre al centesimo, ritocco < 0,20', () => {
+  for (let lis = 1; lis <= 500; lis += 7.13) {
+    const lisC = Math.round(lis * 100) / 100;
+    for (let pct = 0.01; pct <= 1.2; pct += 0.013) {
+      const acq = Math.round(lisC * pct * 100) / 100;
+      if (acq <= 0) continue;
+      assertVenditaAlCentesimo(calcolaRiga(acq, lisC, DEF), lisC, `acq=${acq} lis=${lisC}`);
+    }
+  }
+});
+
+test('#24 config non intera (step 1, cap 71, B 33) → vendita al centesimo, ritocco < 0,20', () => {
+  const S = { ...DEF, uiRoundStep: 1, regACapValue: 71, regBDiscount: 33 };
+  for (let lis = 1; lis <= 300; lis += 3.37) {
+    const lisC = Math.round(lis * 100) / 100;
+    for (let pct = 0.05; pct <= 1.0; pct += 0.031) {
+      const acq = Math.round(lisC * pct * 100) / 100;
+      if (acq <= 0) continue;
+      const r = calcolaRiga(acq, lisC, S);
+      assertScontoIntero(r, `acq=${acq} lis=${lisC}`);
+      assertVenditaAlCentesimo(r, lisC, `acq=${acq} lis=${lisC}`);
+    }
+  }
+  const b = calcolaRiga(7, 0, S);
+  assertScontoIntero(b, 'B');
+  assertVenditaAlCentesimo(b, 0, 'B');
 });
 
 if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }
