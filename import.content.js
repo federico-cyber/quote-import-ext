@@ -1,9 +1,9 @@
-// import.content.js — AR AUTO — Qricambi v1.1.9 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.1.10 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.1.9]";
+  const TAG = "[QUOTE-IMPORT v1.1.10]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
@@ -98,6 +98,11 @@
       ? { ...payload, override_clifor_numero: manualOverride }
       : payload;
 
+    // true solo se l'utente ha accettato il retry su cliente generico: il retry
+    // invia un oggetto nuovo (payload resta senza override) e il bridge non
+    // restituisce override_clifor_numero nel body 200 (issue #27).
+    let fallbackUsed = false;
+
     try {
       let { res, body } = await postQuote(initialPayload);
 
@@ -110,6 +115,7 @@
           `Importare comunque come cliente generico SIRJ #${FALLBACK_CLIFOR_NUMERO}?`
         );
         if (retry) {
+          fallbackUsed = true;
           ({ res, body } = await postQuote({
             ...payload,
             override_clifor_numero: FALLBACK_CLIFOR_NUMERO,
@@ -124,7 +130,7 @@
 
       if (res.status === 200) {
         const usedOverride = manualOverride > 0 ? manualOverride :
-          (body.override_clifor_numero !== undefined || payload.override_clifor_numero !== undefined
+          (fallbackUsed || payload.override_clifor_numero !== undefined
             ? FALLBACK_CLIFOR_NUMERO : 0);
         const isFallback = usedOverride > 0;
         const status = isFallback ? "ok-fallback" : "ok";

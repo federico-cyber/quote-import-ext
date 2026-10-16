@@ -68,6 +68,7 @@ Nessuna CI su questo repo. Test node puri, zero dipendenze:
 ```
 node tests/test_injected_confirm.js
 node tests/test_calcola_riga.js
+node tests/test_import_fallback.js
 ```
 
 ### Sconto sempre intero 0-99 (#21)
