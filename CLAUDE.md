@@ -70,6 +70,7 @@ node tests/test_injected_confirm.js
 node tests/test_calcola_riga.js
 node tests/test_import_fallback.js
 node tests/test_fab_shortcut.js
+node tests/test_onboth_gating.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
@@ -80,6 +81,18 @@ corso le altre richieste (menu o tastiera) vengono ignorate con un `console.warn
 tre voci restano disabilitate e un errore dell'handler finisce in `console.error`.
 Senza guardia un doppio keydown lanciava due volte `onPricing` (lo snapshot di ANNULLA
 si riscriveva con i valori già ritoccati) o due POST di import.
+
+### Pricing + Import (`onBoth` in `fab.js`, #31)
+
+Scelta di Fede «Fermati su errori». `onPricing` **ritorna** l'esito (`ok`/`tot`/`skip`/
+`skipReasons`; su eccezione `{..., error}`) e `onBoth` lo consuma: l'import NON parte se
+l'esito manca, c'e' un errore, `tot===0`, `ok===0` o anche **una sola** riga saltata/fallita
+(`skip` o qualunque `skipReasons.*`). Non c'e' piu' l'attesa fissa di 1800 ms: `onBoth`
+registra un listener `chrome.storage.onChanged` su `lastPatchPayload` **prima** del pricing,
+poi attende la scrittura (quiete `bothSettleMs` dall'ultima, per le PATCH ravvicinate) entro
+`bothWaitMs`. Senza scrittura (PATCH rifiutata, mai partita, oppure payload identico al
+precedente, per cui Chrome non emette `onChanged`) l'import non parte e compare un alert col
+motivo: l'utente puo' usare «Importa in SIRJ» a mano. Non rimettere un `setTimeout` fisso.
 
 ### Sconto sempre intero 0-99 (#21)
 

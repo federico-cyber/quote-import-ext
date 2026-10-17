@@ -25,7 +25,10 @@ const DEFAULTS = {
   injectionInitialDelayMs: 200,
   injectionMaxDelayMs: 30000,
   // ── Pricing+Import combinato (fab.js onBoth) ────────────────────────
-  // Attesa dopo pricing prima di lanciare l'import: il PATCH /api/Quote
-  // intercettato da injected.js deve aver popolato lastPatchPayload.
-  bothWaitMs: 1800,
+  // Nessuna attesa fissa (#31): l'import parte dopo la scrittura di
+  // chrome.storage.local.lastPatchPayload (PATCH /api/Quote confermata da Qricambi).
+  // bothWaitMs = timeout massimo di attesa di quella scrittura, dopo il pricing;
+  // bothSettleMs = quiete richiesta dall'ultima scrittura (PATCH ravvicinate).
+  bothWaitMs: 15000,
+  bothSettleMs: 600,
 };
