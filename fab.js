@@ -68,19 +68,40 @@
     fab.classList.toggle('open');
   });
 
+  // Guardia di riesecuzione CONDIVISA tra menu e shortcut (#28): una sola azione
+  // alla volta tra Pricing / Import / Pricing+Import. Un secondo Applica Pricing
+  // sui valori gia ritoccati sovrascriverebbe lo snapshot di ANNULLA, e un doppio
+  // Import farebbe due POST verso il bridge. Le tre voci di menu restano
+  // disabilitate finche l'azione e in corso (feedback visivo anche per lo shortcut).
+  const actionItems = [];
+  let actionRunning = false;
+
+  async function runAction(handlerName, source) {
+    const handler = window.__AR_QRICAMBI[handlerName];
+    if (typeof handler !== 'function') {
+      console.warn(TAG, handlerName, 'non registrato');
+      return;
+    }
+    if (actionRunning) {
+      console.warn(TAG, handlerName, 'ignorato (' + source + '): un\'altra azione e in corso');
+      return;
+    }
+    actionRunning = true;
+    actionItems.forEach((it) => { it.disabled = true; });
+    try { await handler(); }
+    catch (err) { console.error(TAG, handlerName, 'errore:', err); }
+    finally {
+      actionRunning = false;
+      actionItems.forEach((it) => { it.disabled = false; });
+    }
+  }
+
   function bindMenuItem(id, handlerName) {
-    fab.querySelector(id).addEventListener('click', async (e) => {
-      fab.classList.remove('open'); // chiudi il menu subito, per reattività
-      const handler = window.__AR_QRICAMBI[handlerName];
-      if (typeof handler !== 'function') {
-        console.warn(TAG, handlerName, 'non registrato');
-        return;
-      }
-      const item = e.currentTarget;
-      item.disabled = true;
-      try { await handler(); }
-      catch (err) { console.error(TAG, handlerName, 'errore:', err); }
-      finally { item.disabled = false; }
+    const item = fab.querySelector(id);
+    actionItems.push(item);
+    item.addEventListener('click', () => {
+      fab.classList.remove('open'); // chiudi il menu subito, per reattivita
+      return runAction(handlerName, 'menu');
     });
   }
   bindMenuItem('#ar-qr-menu-pricing', 'onPricing');
@@ -143,13 +164,8 @@
     if (!handlerName) return;
     e.preventDefault();
     e.stopPropagation();
-    const handler = window.__AR_QRICAMBI[handlerName];
-    if (typeof handler === 'function') {
-      console.log(TAG, 'shortcut', key.toUpperCase(), '→', handlerName);
-      handler();
-    } else {
-      console.warn(TAG, 'shortcut', key, ': handler', handlerName, 'non registrato');
-    }
+    console.log(TAG, 'shortcut', key.toUpperCase(), '→', handlerName);
+    runAction(handlerName, 'shortcut');
   }, true);
 
   // ── Injection con exponential backoff ─────────────────────────────

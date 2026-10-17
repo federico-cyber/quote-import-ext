@@ -69,7 +69,17 @@ Nessuna CI su questo repo. Test node puri, zero dipendenze:
 node tests/test_injected_confirm.js
 node tests/test_calcola_riga.js
 node tests/test_import_fallback.js
+node tests/test_fab_shortcut.js
 ```
+
+### Una azione alla volta: menu e shortcut (#28)
+
+`fab.js` ha un'unica guardia (`runAction`) per Pricing / Import / Pricing+Import,
+condivisa tra le voci di menu e gli shortcut Alt+Shift+P/I/B: finché un'azione è in
+corso le altre richieste (menu o tastiera) vengono ignorate con un `console.warn`, le
+tre voci restano disabilitate e un errore dell'handler finisce in `console.error`.
+Senza guardia un doppio keydown lanciava due volte `onPricing` (lo snapshot di ANNULLA
+si riscriveva con i valori già ritoccati) o due POST di import.
 
 ### Sconto sempre intero 0-99 (#21)
 
