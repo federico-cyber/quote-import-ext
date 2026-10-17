@@ -53,12 +53,32 @@ Importarlo resta corretto.
 
 Il *contenuto* pubblicato è invariato rispetto a prima del fix: cambia solo *quando*.
 
+### Payload = preventivo aperto (#30)
+
+`lastPatchPayload` è l'ultimo stato confermato, **non** necessariamente il preventivo
+che l'utente ha davanti. Tre regole:
+
+- **Ordine.** `injected.js` numera ogni PATCH con un `seq` crescente all'**invio** e
+  pubblica `{payload, seq}`; una conferma arrivata dopo una più recente si scarta
+  (anche `import.content.js` scarta i `seq` minori dell'ultimo accettato). Vince
+  l'ultimo invio, non l'ultima risposta.
+- **Conferma sul mismatch.** `handleClick` confronta `payload.ID` con il preventivo
+  aperto: numeri a 4+ cifre nell'URL (`idsFromHref`), altrimenti l'ultimo id visto da
+  `injected.js` (`AR_QUOTE_OPEN` da `GET /api/Quote/find/<id>`, o l'ID dell'ultima PATCH
+  confermata). Se non coincidono mostra una conferma con i **due** preventivi e importa
+  solo se l'utente dice sì (scelta di Fede, #30). Se nessuna fonte dà un id
+  ('unknown') non chiede nulla: resta la sola conferma d'import. Il formato dell'URL
+  Qricambi e il `find/<id>` vengono dal bundle, **non** verificati su una pagina reale.
+- **Azzeramento.** Dopo un import 200 (non in collisione, #29) o 409 `lastPatchPayload`/`lastPatchSeq` vengono
+  rimossi (solo se in storage c'è ancora il payload importato). Dopo 422/500/errore di
+  rete, collisione di numerazione o import annullato restano, così si può riprovare.
+
 ### Storage
 
 Tutto su `chrome.storage.local`:
 - parametri pricing + `backendUrl` + `apiKey` (config, gestita da `options.html`);
 - `lastPatchPayload` (ultimo payload intercettato da `injected.js`, **già confermato
-  da Qricambi**);
+  da Qricambi**) + `lastPatchSeq` (suo ordine di invio); azzerati dopo import 200/409;
 - `importHistory` (array FIFO, cap 50 — vedi sotto).
 
 ## Test
@@ -72,6 +92,7 @@ node tests/test_import_fallback.js
 node tests/test_fab_shortcut.js
 node tests/test_onboth_gating.js
 node tests/test_parse_num.js
+node tests/test_import_payload_guard.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)

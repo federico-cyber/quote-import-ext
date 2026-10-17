@@ -16,14 +16,68 @@
   });
 
   // ── 1. Listener postMessage dal main-world script ─────────────────────
+  // Stato per-tab (quote-import-ext#30):
+  //  - lastSeq: seq dell'ultimo payload accettato. injected.js numera le PATCH
+  //    in ordine di INVIO; un payload con seq minore e' uno stato superato
+  //    (risposta arrivata fuori ordine) e non deve sovrascrivere quello nuovo.
+  //  - openQuoteId: ultimo preventivo visto aprire (GET /api/Quote/find/<id>) o
+  //    salvare (PATCH confermata) in questa pagina.
+  let lastSeq = 0;
+  let openQuoteId = null;
+
+  function isNewer(prevSeq, nextSeq) {
+    // messaggio senza seq (injected.js vecchio): non si puo' ordinare, si accetta
+    if (!nextSeq) return true;
+    return nextSeq > prevSeq;
+  }
+
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
-    if (!data || data.source !== "AR_QUOTE_IMPORT" || !data.payload) return;
-    chrome.storage.local.set({ lastPatchPayload: data.payload });
+    if (!data) return;
+    if (data.source === "AR_QUOTE_OPEN") {
+      if (data.id) openQuoteId = String(data.id);
+      return;
+    }
+    if (data.source !== "AR_QUOTE_IMPORT" || !data.payload) return;
+    if (!isNewer(lastSeq, data.seq)) {
+      console.log(TAG, "payload ID=", data.payload.ID, "seq", data.seq,
+                  "piu' vecchio di", lastSeq, "— scartato");
+      return;
+    }
+    if (data.seq) lastSeq = data.seq;
+    if (data.payload.ID) openQuoteId = String(data.payload.ID);
+    chrome.storage.local.set({ lastPatchPayload: data.payload, lastPatchSeq: data.seq || 0 });
     console.log(TAG, "received payload from main-world ID=", data.payload.ID,
                 "items=", data.payload.items.length);
   });
+
+  // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
+  // aperto. Il formato esatto dell'URL Qricambi non e' documentato: se non c'e'
+  // nessun candidato l'URL non dice nulla e si ricade su openQuoteId.
+  function idsFromHref(href) {
+    const rest = String(href || "").replace(/^[a-z][a-z0-9+.-]*:\/\/[^\/]*/i, "");
+    const ids = [];
+    const re = /(?<=[\/=&?#])(\d{4,})(?=[\/&?#]|$)/g;
+    let m;
+    while ((m = re.exec(rest))) ids.push(m[1]);
+    return ids;
+  }
+
+  // Il payload e' del preventivo aperto? 'match' | 'mismatch' | 'unknown'.
+  function checkOpenQuote(payloadId) {
+    const id = String(payloadId);
+    const urlIds = idsFromHref(window.location && window.location.href);
+    if (urlIds.length) {
+      return urlIds.includes(id)
+        ? { state: "match" } : { state: "mismatch", openIds: urlIds };
+    }
+    if (openQuoteId) {
+      return openQuoteId === id
+        ? { state: "match" } : { state: "mismatch", openIds: [openQuoteId] };
+    }
+    return { state: "unknown" };
+  }
 
   // ── 2. Handler import: registrato su window.__AR_QRICAMBI per il menu FAB ──
   window.__AR_QRICAMBI = window.__AR_QRICAMBI || { onPricing: null, onImport: null };
@@ -39,10 +93,25 @@
       chrome.storage.local.set({ importHistory: history }, resolve));
   }
 
+  // Dopo un import concluso (200 / 409) il payload non va piu' riproposto.
+  // Si cancella solo se in storage c'e' ancora quello importato: una PATCH piu'
+  // nuova confermata mentre la POST era in corso resta intatta.
+  // Un errore qui non deve mai cambiare l'esito di un import gia' riuscito.
+  async function clearImportedPayload(importedSeq) {
+    try {
+      const cur = await new Promise((resolve) =>
+        chrome.storage.local.get(["lastPatchSeq"], resolve));
+      if ((cur.lastPatchSeq || 0) !== importedSeq) return;
+      await new Promise((resolve) =>
+        chrome.storage.local.remove(["lastPatchPayload", "lastPatchSeq"], resolve));
+    } catch (e) { console.log(TAG, "clear lastPatchPayload fallito:", e.message); }
+  }
+
   async function handleClick() {
     const stored = await new Promise((resolve) =>
-      chrome.storage.local.get(["lastPatchPayload"], resolve));
+      chrome.storage.local.get(["lastPatchPayload", "lastPatchSeq"], resolve));
     const payload = stored.lastPatchPayload;
+    const importedSeq = stored.lastPatchSeq || 0;
     if (!payload) {
       alert("Nessun preventivo intercettato.\nModifica/salva il preventivo (anche un solo blur) e riprova.");
       return;
@@ -54,6 +123,20 @@
       alert("Configura X-API-Key in Opzioni.");
       chrome.runtime.openOptionsPage();
       return;
+    }
+
+    // Il payload e' quello del preventivo aperto? Se no, l'import chiederebbe di
+    // portare in SIRJ un preventivo diverso da quello che l'utente ha davanti.
+    const open = checkOpenQuote(payload.ID);
+    if (open.state === "mismatch") {
+      const okMismatch = confirm(
+        `ATTENZIONE: il preventivo aperto non coincide con quello intercettato.\n\n` +
+        `Preventivo aperto: #${open.openIds.join(", #")}\n` +
+        `Preventivo da importare: #${payload.ID} — ${payload.customerdata?.CustomerName || "(?)"}, ` +
+        `${payload.car || "(?)"}\n\n` +
+        `Importare in SIRJ il preventivo #${payload.ID}?`
+      );
+      if (!okMismatch) return;
     }
 
     // Override manuale codice cliente (configurabile in Opzioni, issue #9)
@@ -163,6 +246,7 @@
           const status = isFallback ? "ok-fallback" : "ok";
           await appendToHistory({ ...baseRecord, status,
             sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
+          await clearImportedPayload(importedSeq);
           resultModal({
             tone: "ok",
             title: "IMPORTATO IN SIRJ",
@@ -176,6 +260,7 @@
       } else if (res.status === 409) {
         await appendToHistory({ ...baseRecord, status: "dup",
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
+        await clearImportedPayload(importedSeq);
         toast(`Già importato: PR3 ${body.sirj_numero}/${body.sirj_anno}`, "warn");
       } else if (res.status === 422) {
         await appendToHistory({ ...baseRecord, status: "err",
