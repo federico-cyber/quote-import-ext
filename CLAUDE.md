@@ -97,8 +97,18 @@ Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
 ### Storico import
 
 `import.content.js` appende un record a `chrome.storage.local.importHistory` su
-**tutti** i rami della risposta POST (200/409/422/errore rete). Array FIFO cap 50.
-Il popup ne mostra gli ultimi 20.
+**tutti** i rami della risposta POST. Array FIFO cap 50. Il popup ne mostra gli ultimi 20.
+
+| status | Quando | Avviso all'operatore |
+|---|---|---|
+| `ok` / `ok-fallback` | 200 (fallback = cliente generico/override) | modal verde col numero PR3; se `unmatched_articles` non è vuoto, riga arancione con i codici non agganciati |
+| `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) | toast `warn` + modal arancione, mai verde |
+| `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto) | toast `warn` + modal arancione col numero `sirj_numero/sirj_anno` da verificare in SIRJ, non ritentare alla cieca |
+| `dup` | 409 | toast `warn` |
+| `err` | 422 senza fallback, altri HTTP, errore di rete | toast `err` |
+
+Test dei rami: `node tests/test_import_response_branches.js` (esegue `import.content.js`
+e `popup.js` in `vm` con chrome/fetch/DOM finti).
 
 ## Debug
 
