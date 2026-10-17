@@ -71,6 +71,7 @@ node tests/test_calcola_riga.js
 node tests/test_import_fallback.js
 node tests/test_fab_shortcut.js
 node tests/test_onboth_gating.js
+node tests/test_parse_num.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)

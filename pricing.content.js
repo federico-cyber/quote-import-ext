@@ -265,12 +265,44 @@
     return span.outerHTML + '<br>';
   }
 
+  // Legge un numero da testo/valore di cella. Formato italiano (quote-import-ext#32):
+  //   "1.234,56" → 1234.56 (punto = migliaia, virgola = decimale)
+  //   "1234.56"  → 1234.56 (punto singolo con != 3 cifre dopo = decimale)
+  //   "1.234"    → 1234    (punto singolo + gruppo di 3 cifre, parte intera 1-3 cifre
+  //                         senza zero iniziale = migliaia it-IT)
+  //   "1,234.56" → 1234.56 (se ci sono entrambi, decimale è l'ultimo separatore)
+  // Il segno vale solo in prima posizione ("-% 30" → -30); "10 - 20" → 10.
   function parseNum(str) {
     if (str === null || str === undefined) return null;
     // Rimuove tutto tranne numeri, virgola, punto e segno meno. Gestisce "+% 40", "-% 30", "€ 100"
-    const s = String(str).replace(/[^\d.,-]/g, '').replace(',', '.');
-    const n = parseFloat(s);
-    return isNaN(n) ? null : n;
+    const clean = String(str).replace(/[^\d.,-]/g, '');
+    const neg = clean.charAt(0) === '-';
+    const m = clean.replace(/^-/, '').match(/^[\d.,]+/);
+    if (!m) return null;
+    const tok = m[0];
+    const lastDot = tok.lastIndexOf('.');
+    const lastComma = tok.lastIndexOf(',');
+    let dec = '';
+    if (lastDot >= 0 && lastComma >= 0) {
+      dec = lastDot > lastComma ? '.' : ',';
+    } else if (lastComma >= 0) {
+      dec = tok.indexOf(',') === lastComma ? ',' : '';       // più virgole = migliaia
+    } else if (lastDot >= 0 && tok.indexOf('.') === lastDot) {
+      const intPart = tok.slice(0, lastDot);
+      const frac = tok.slice(lastDot + 1);
+      const migliaia = frac.length === 3 && /^[1-9]\d{0,2}$/.test(intPart);
+      dec = migliaia ? '' : '.';
+    }
+    let norm;
+    if (dec) {
+      const i = tok.lastIndexOf(dec);
+      norm = tok.slice(0, i).replace(/[.,]/g, '') + '.' + tok.slice(i + 1).replace(/[.,]/g, '');
+    } else {
+      norm = tok.replace(/[.,]/g, '');
+    }
+    const n = parseFloat(norm);
+    if (isNaN(n)) return null;
+    return neg ? -n : n;
   }
 
   // ── VUE 3 COMPATIBLE INPUT SETTER (v6.1) ──────────────────
