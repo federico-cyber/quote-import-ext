@@ -71,6 +71,7 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
           cb(out);
         },
         set(obj, cb) { Object.assign(store, obj); if (cb) cb(); },
+        remove(keys, cb) { [].concat(keys).forEach((k) => delete store[k]); if (cb) cb(); },
       } },
     },
     alert() {},

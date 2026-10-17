@@ -29,11 +29,40 @@
   // il payload veniva pubblicato all'atto della send, cioe' sull'INTENTO di
   // scrittura, e un preventivo mai salvato su Qricambi poteva comunque
   // finire importato in SIRJ come PR3.
-  function publishConfirmed(parsed) {
+  //
+  // Ordine (quote-import-ext#30): ogni PATCH riceve un `seq` crescente al momento
+  // dell'INVIO. Due PATCH ravvicinate possono essere confermate fuori ordine; se
+  // la risposta della piu' vecchia arriva dopo quella della piu' nuova NON si
+  // pubblica, altrimenti lastPatchPayload resterebbe lo stato superato.
+  let lastSentSeq = 0;
+  let lastPublishedSeq = 0;
+  function nextSeq() {
+    lastSentSeq = Math.max(lastSentSeq + 1, Date.now() * 1000);
+    return lastSentSeq;
+  }
+
+  function publishConfirmed(parsed, seq) {
     try {
-      window.postMessage({ source: "AR_QUOTE_IMPORT", payload: parsed }, "*");
+      if (seq < lastPublishedSeq) {
+        console.log(TAG, "PATCH /api/Quote ID=", parsed.ID,
+                    "confermata fuori ordine: gia' pubblicato uno stato piu' recente — scartata");
+        return;
+      }
+      lastPublishedSeq = seq;
+      window.postMessage({ source: "AR_QUOTE_IMPORT", payload: parsed, seq }, "*");
       console.log(TAG, "PATCH /api/Quote CONFERMATA dal server ID=", parsed.ID,
                   "items=", parsed.items.length);
+    } catch (e) { /* no-op */ }
+  }
+
+  // Segnala al content script quale preventivo la pagina sta aprendo
+  // (GET /api/Quote/find/<id>): serve a import.content.js per accorgersi che il
+  // preventivo aperto non e' quello dell'ultimo payload confermato.
+  function noteOpenedQuote(method, url) {
+    try {
+      if ((method || "").toUpperCase() !== "GET" || !url) return;
+      const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
+      if (m) window.postMessage({ source: "AR_QUOTE_OPEN", id: m[1] }, "*");
     } catch (e) { /* no-op */ }
   }
 
@@ -55,20 +84,23 @@
   window.fetch = async function (...args) {
     const [resource, init] = args;
     let pending = null;
+    let seq = 0;
     try {
       const url = typeof resource === "string" ? resource : resource?.url;
       const method = (init?.method || "GET").toUpperCase();
       logTouch("fetch", method, url);
+      noteOpenedQuote(method, url);
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
       // ma il payload resta in sospeso finche' il server non risponde.
       pending = extractQuotePayload(method, url, init?.body);
+      if (pending) seq = nextSeq();
     } catch (e) { /* no-op */ }
     // Se la fetch va in errore di rete, l'eccezione si propaga come prima e
     // il payload non viene mai pubblicato.
     const res = await origFetch.apply(this, args);
     try {
       if (pending) {
-        if (res && res.ok) publishConfirmed(pending);
+        if (res && res.ok) publishConfirmed(pending, seq);
         else logRejected("fetch", res && res.status, pending);
       }
     } catch (e) { /* no-op */ }
@@ -90,13 +122,15 @@
     xhr.send = function (body) {
       try {
         logTouch("xhr", _method, _url);
+        noteOpenedQuote(_method, _url);
         const pending = extractQuotePayload(_method, _url, body);
         if (pending) {
+          const seq = nextSeq();
           // 'load' scatta solo a risposta ricevuta: su abort/errore di rete
           // non scatta affatto e il payload non viene mai pubblicato.
           xhr.addEventListener("load", function () {
             try {
-              if (xhr.status >= 200 && xhr.status < 300) publishConfirmed(pending);
+              if (xhr.status >= 200 && xhr.status < 300) publishConfirmed(pending, seq);
               else logRejected("xhr", xhr.status, pending);
             } catch (e) { /* no-op */ }
           });
