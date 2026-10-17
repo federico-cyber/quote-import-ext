@@ -127,10 +127,72 @@
     catch (err) { console.error(TAG, 'onUndo errore:', err); item.disabled = false; }
   });
 
-  // ── Handler combinato pricing → wait → import (v1.1.2) ────────────
+  // ── Handler combinato pricing → conferma salvataggio → import (#31) ──
   // Il PATCH /api/Quote scatta SOLO dopo che Vue ha riconciliato gli input
-  // modificati da pricing. Attendiamo un breve delay per dare a injected.js
-  // il tempo di intercettarlo e popolare chrome.storage.local.lastPatchPayload.
+  // modificati da pricing, ed e' pubblicato da injected.js solo dopo la conferma
+  // di Qricambi: import.content.js lo salva in chrome.storage.local.lastPatchPayload.
+  // Niente attesa fissa: si ascolta la vera scrittura di quella chiave
+  // (chrome.storage.onChanged), con una breve finestra di quiete per le PATCH
+  // ravvicinate (l'ultima porta lo stato completo) e un timeout.
+  // Scelta di Fede «Fermati su errori»: l'import parte solo se il pricing e'
+  // riuscito su TUTTE le righe; una sola riga saltata o fallita lo blocca.
+
+  // Motivo per cui NON importare, o null se l'esito del pricing e' pulito.
+  function bothBlockReason(res) {
+    if (!res || typeof res !== 'object') return 'esito del pricing non disponibile';
+    if (res.error) return `errore nel pricing (${res.error})`;
+    if (!(res.tot > 0)) return 'nessuna riga trovata nel preventivo';
+    if (!(res.ok > 0)) return 'nessuna riga aggiornata dal pricing';
+    const reasons = res.skipReasons || {};
+    const fromReasons = Object.values(reasons).reduce((a, n) => a + (Number(n) || 0), 0);
+    const skipped = Math.max(Number(res.skip) || 0, fromReasons);
+    if (skipped > 0) return `${skipped} righe saltate o fallite dal pricing`;
+    return null;
+  }
+
+  // Si arma PRIMA del pricing, cosi' una PATCH veloce non si perde.
+  function armPatchWatch() {
+    let changed = false;
+    let onChange = null;
+    const listener = (changes, area) => {
+      if (area !== 'local' || !changes || !changes.lastPatchPayload) return;
+      if (!changes.lastPatchPayload.newValue) return;
+      changed = true;
+      if (onChange) onChange();
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return {
+      dispose() { chrome.storage.onChanged.removeListener(listener); },
+      // true = scrittura vista e quiete raggiunta; false = nessuna scrittura entro il timeout.
+      wait(timeoutMs, settleMs) {
+        return new Promise((resolve) => {
+          let settleTimer = null;
+          let timeoutTimer = null;
+          const finish = (v) => {
+            clearTimeout(settleTimer); clearTimeout(timeoutTimer);
+            onChange = null;
+            resolve(v);
+          };
+          const arm = () => {
+            clearTimeout(settleTimer);
+            settleTimer = setTimeout(() => finish(true), settleMs);
+          };
+          timeoutTimer = setTimeout(() => finish(changed), timeoutMs);
+          onChange = arm;
+          if (changed) arm();
+        });
+      },
+    };
+  }
+
+  function bothStop(reason) {
+    console.warn(TAG, 'onBoth: import NON eseguito —', reason);
+    if (typeof alert === 'function') {
+      alert(`Pricing + Import: import NON eseguito.\n\nMotivo: ${reason}.\n` +
+            `Controlla il preventivo e usa "Importa in SIRJ" quando e' tutto a posto.`);
+    }
+  }
+
   window.__AR_QRICAMBI.onBoth = async function () {
     const onPricing = window.__AR_QRICAMBI.onPricing;
     const onImport  = window.__AR_QRICAMBI.onImport;
@@ -138,13 +200,23 @@
       console.warn(TAG, 'onBoth: handler mancanti', { onPricing: !!onPricing, onImport: !!onImport });
       return;
     }
-    console.log(TAG, 'sequenza pricing → wait → import avviata');
+    console.log(TAG, 'sequenza pricing → conferma salvataggio → import avviata');
+    const watch = armPatchWatch();
     try {
-      await onPricing();
-      await new Promise((r) => setTimeout(r, DEFAULTS.bothWaitMs || 1800));
+      const res = await onPricing();
+      const blocked = bothBlockReason(res);
+      if (blocked) { bothStop(blocked); return; }
+      const saved = await watch.wait(DEFAULTS.bothWaitMs, DEFAULTS.bothSettleMs);
+      if (!saved) {
+        bothStop(`Qricambi non ha confermato il salvataggio entro ${Math.round(DEFAULTS.bothWaitMs / 1000)} s`);
+        return;
+      }
       await onImport();
     } catch (e) {
       console.error(TAG, 'onBoth errore:', e);
+      bothStop(`errore imprevisto (${e && e.message ? e.message : e})`);
+    } finally {
+      watch.dispose();
     }
   };
 

@@ -589,9 +589,11 @@
         );
         updateSummaryWidget(res);
       }
+      return res; // esito (ok/tot/skip/skipReasons) consumato da onBoth in fab.js (#31)
     } catch (e) {
       console.error(TAG, 'Errore esecuzione pricing:', e);
       showToast(`<b>Errore</b><br><span class="m">${escHtml(e.message)}</span>`, 'error');
+      return { tot: 0, ok: 0, skip: 0, skipReasons: {}, dettagli: [], error: e.message };
     } finally {
       // v1.1.4: ANNULLA disponibile solo se l'applicazione ha prodotto uno snapshot
       if (window.__AR_QRICAMBI.setUndoEnabled) {
