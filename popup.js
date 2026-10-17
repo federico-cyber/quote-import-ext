@@ -11,6 +11,11 @@ function outcomeText(rec) {
   if (rec.status === 'ok')  return `✓ PR3 ${rec.sirjNumero}/${rec.sirjAnno}`;
   if (rec.status === 'ok-fallback') return `✓ PR3 ${rec.sirjNumero}/${rec.sirjAnno} (cliente generico)`;
   if (rec.status === 'dup') return `↺ già importato: PR3 ${rec.sirjNumero}/${rec.sirjAnno}`;
+  if (rec.status === 'collision') return `⚠ collisione numerazione: PR3 ${rec.sirjNumero}/${rec.sirjAnno} occupato da un altro documento, verifica in SIRJ`;
+  if (rec.status === 'esito-incerto') {
+    const ref = rec.sirjNumero != null ? `PR3 ${rec.sirjNumero}/${rec.sirjAnno}` : 'il PR3';
+    return `⚠ esito incerto: verifica in SIRJ ${ref} prima di riprovare`;
+  }
   return `✗ ${rec.error || 'errore'}`;
 }
 

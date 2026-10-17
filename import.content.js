@@ -133,17 +133,46 @@
           (fallbackUsed || payload.override_clifor_numero !== undefined
             ? FALLBACK_CLIFOR_NUMERO : 0);
         const isFallback = usedOverride > 0;
-        const status = isFallback ? "ok-fallback" : "ok";
-        await appendToHistory({ ...baseRecord, status,
-          sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
         const suffix = isFallback ? `Override cliente SIRJ #${usedOverride}` : "";
-        successModal({
-          numero: body.sirj_numero,
-          anno: body.sirj_anno,
-          customer: baseRecord.customer,
-          car: baseRecord.car,
-          suffix,
-        });
+        const unmatched = Array.isArray(body.unmatched_articles) ? body.unmatched_articles : [];
+        const unmatchedNote = unmatched.length
+          ? `${unmatched.length} articoli non agganciati a un articolo SIRJ: ` +
+            unmatched.map((u) => u.code || "(no code)").join(", ")
+          : "";
+        if (body.collision === true) {
+          // Il bridge ha scritto il PR3 ma il numero è poi risultato occupato da
+          // un altro documento (#929): il preventivo importato è perso, non è un
+          // successo. Avviso giallo, stato dedicato, nessun modal verde (#29).
+          const msg = `Collisione numerazione: il PR3 ${body.sirj_numero}/${body.sirj_anno} ` +
+            `risulta occupato da un altro documento. Controlla in SIRJ prima di reimportare.`;
+          await appendToHistory({ ...baseRecord, status: "collision",
+            sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: msg });
+          toast(msg, "warn");
+          resultModal({
+            tone: "warn",
+            title: "COLLISIONE NUMERAZIONE",
+            numero: body.sirj_numero,
+            anno: body.sirj_anno,
+            customer: baseRecord.customer,
+            car: baseRecord.car,
+            notes: ["Il numero risulta occupato da un altro documento: " +
+                    "l'import potrebbe essere andato perso. Controlla in SIRJ.",
+                    suffix, unmatchedNote],
+          });
+        } else {
+          const status = isFallback ? "ok-fallback" : "ok";
+          await appendToHistory({ ...baseRecord, status,
+            sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
+          resultModal({
+            tone: "ok",
+            title: "IMPORTATO IN SIRJ",
+            numero: body.sirj_numero,
+            anno: body.sirj_anno,
+            customer: baseRecord.customer,
+            car: baseRecord.car,
+            notes: [suffix, unmatchedNote],
+          });
+        }
       } else if (res.status === 409) {
         await appendToHistory({ ...baseRecord, status: "dup",
           sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
@@ -152,6 +181,25 @@
         await appendToHistory({ ...baseRecord, status: "err",
           sirjNumero: null, sirjAnno: null, error: body.error || "Errore 422" });
         toast(`Errore: ${body.error || "cliente non trovato"}`, "err");
+      } else if (res.status === 503 && body.esito_incerto === true) {
+        // Commit a esito incerto: il PR3 potrebbe essere stato scritto. Non
+        // ritentare alla cieca: va verificato in SIRJ (#29).
+        const ref = body.sirj_numero != null
+          ? `il PR3 ${body.sirj_numero}/${body.sirj_anno}` : "se esiste un PR3 per questo preventivo";
+        const msg = `Esito incerto: verifica in SIRJ ${ref} prima di riprovare.`;
+        await appendToHistory({ ...baseRecord, status: "esito-incerto",
+          sirjNumero: body.sirj_numero ?? null, sirjAnno: body.sirj_anno ?? null, error: msg });
+        toast(msg, "warn");
+        resultModal({
+          tone: "warn",
+          title: "ESITO INCERTO",
+          numero: body.sirj_numero,
+          anno: body.sirj_anno,
+          customer: baseRecord.customer,
+          car: baseRecord.car,
+          notes: [`Verifica in SIRJ ${ref} prima di riprovare: ` +
+                  "reimportare alla cieca può creare un secondo PR3."],
+        });
       } else {
         await appendToHistory({ ...baseRecord, status: "err",
           sirjNumero: null, sirjAnno: null, error: body.error || res.statusText });
@@ -178,12 +226,15 @@
     setTimeout(() => t.remove(), 6000);
   }
 
-  // Modal centrale di conferma import riuscito (v1.1.5).
+  // Modal centrale di esito import (v1.1.5, generalizzato per #29).
   // A differenza del toast (auto-dismiss 6s, angolo), questo oscura la pagina
   // e resta finché l'utente non clicca OK / preme Invio o Esc / clicca fuori:
-  // impossibile non vedere il numero PR3 generato.
-  function successModal({ numero, anno, customer, car, suffix }) {
-    const GREEN = "#2e7d32";
+  // impossibile non vedere il numero PR3.
+  // tone "ok" = verde (import riuscito); tone "warn" = arancione/giallo (collisione
+  // di numerazione, esito incerto): mai verde se l'esito non è certo (#29).
+  // notes: righe di dettaglio, vuote ignorate.
+  function resultModal({ tone, title: titleText, numero, anno, customer, car, notes }) {
+    const COLOR = tone === "warn" ? "#ef6c00" : "#2e7d32";
     const overlay = document.createElement("div");
     overlay.style.cssText = `
       position:fixed;inset:0;z-index:2147483647;
@@ -194,28 +245,28 @@
 
     const card = document.createElement("div");
     card.style.cssText = `
-      background:#fff;border-radius:14px;border-top:6px solid ${GREEN};
+      background:#fff;border-radius:14px;border-top:6px solid ${COLOR};
       padding:28px 36px 24px;max-width:440px;width:90%;
       box-shadow:0 12px 40px rgba(0,0,0,0.4);text-align:center;
     `;
 
     const check = document.createElement("div");
-    check.textContent = "✓";
+    check.textContent = tone === "warn" ? "!" : "✓";
     check.style.cssText = `
       width:64px;height:64px;margin:0 auto 12px;border-radius:50%;
-      background:${GREEN};color:#fff;font-size:38px;line-height:64px;font-weight:700;
+      background:${COLOR};color:#fff;font-size:38px;line-height:64px;font-weight:700;
     `;
 
     const title = document.createElement("div");
-    title.textContent = "IMPORTATO IN SIRJ";
+    title.textContent = titleText;
     title.style.cssText = `
       font-size:15px;font-weight:700;letter-spacing:1px;color:#555;margin-bottom:6px;
     `;
 
     const num = document.createElement("div");
-    num.textContent = `PR3 ${numero}/${anno}`;
+    num.textContent = numero != null ? `PR3 ${numero}/${anno}` : "PR3 da verificare";
     num.style.cssText = `
-      font-size:34px;font-weight:800;color:${GREEN};margin:4px 0 14px;
+      font-size:34px;font-weight:800;color:${COLOR};margin:4px 0 14px;
     `;
 
     const meta = document.createElement("div");
@@ -225,18 +276,18 @@
     const btn = document.createElement("button");
     btn.textContent = "OK";
     btn.style.cssText = `
-      margin-top:18px;background:${GREEN};color:#fff;border:none;
+      margin-top:18px;background:${COLOR};color:#fff;border:none;
       padding:10px 40px;border-radius:8px;font-size:15px;font-weight:700;
       cursor:pointer;
     `;
 
     card.append(check, title, num, meta);
-    if (suffix) {
+    (notes || []).filter(Boolean).forEach((text) => {
       const note = document.createElement("div");
-      note.textContent = suffix;
+      note.textContent = text;
       note.style.cssText = `font-size:12px;color:#ef6c00;margin-top:4px;`;
       card.append(note);
-    }
+    });
     card.append(btn);
     overlay.append(card);
 
