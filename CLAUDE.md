@@ -104,6 +104,13 @@ tre voci restano disabilitate e un errore dell'handler finisce in `console.error
 Senza guardia un doppio keydown lanciava due volte `onPricing` (lo snapshot di ANNULLA
 si riscriveva con i valori già ritoccati) o due POST di import.
 
+Anche **ANNULLA** (`onUndo`) passa da `runAction` (#42): durante Pricing/Import il click
+viene ignorato con il warn e la voce è disabilitata; non è in `actionItems` perché il suo
+stato finale non è fisso: lo decide `setUndoEnabled` (`undoEnabled` in `fab.js`), e a fine
+azione `syncUndoItem` lo ripristina invece di riabilitarlo sempre. Senza guardia ANNULLA
+ripristinava uno snapshot parziale e lo azzerava mentre `esegui()` ne stava ancora
+riempiendo le righe.
+
 ### Pricing + Import (`onBoth` in `fab.js`, #31)
 
 Scelta di Fede «Fermati su errori». `onPricing` **ritorna** l'esito (`ok`/`tot`/`skip`/
