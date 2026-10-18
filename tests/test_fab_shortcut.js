@@ -214,6 +214,96 @@ test('keydown preventDefault come prima', async () => {
   assert.strictEqual(s.prevented(), 1);
 });
 
+// ── ANNULLA passa dalla stessa guardia di runAction (#42) ────────────────
+// onUndo ripristina lo snapshot di pricing: lanciato mentre onPricing e in
+// corso lavorerebbe su uno snapshot parziale e poi lo azzererebbe.
+
+test('click su ANNULLA durante onPricing in corso: onUndo non parte, warn ignorato (#42)', async () => {
+  const s = makeSandbox();
+  const d = deferred();
+  let undoCalls = 0;
+  s.win.__AR_QRICAMBI.setUndoEnabled(true);
+  s.win.__AR_QRICAMBI.onPricing = async () => { await d.promise; };
+  s.win.__AR_QRICAMBI.onUndo = async () => { undoCalls++; };
+  s.keydown('p');
+  await tick();
+  await s.menuItem('#ar-qr-menu-undo').click();
+  assert.strictEqual(undoCalls, 0, 'onUndo lanciato durante onPricing');
+  assert.ok(s.logs.warn.some((a) => a.some((x) => String(x).includes('ignorato'))),
+    'warn "ignorato" non emesso per ANNULLA');
+  d.resolve();
+  await tick();
+});
+
+test('ANNULLA e disabilitato durante un\'azione e torna allo stato di setUndoEnabled dopo (#42)', async () => {
+  const s = makeSandbox();
+  const d = deferred();
+  const undo = s.menuItem('#ar-qr-menu-undo');
+  s.win.__AR_QRICAMBI.setUndoEnabled(true);
+  assert.strictEqual(undo.disabled, false);
+  s.win.__AR_QRICAMBI.onPricing = async () => { await d.promise; };
+  s.keydown('p');
+  await tick();
+  assert.strictEqual(undo.disabled, true, 'ANNULLA non disabilitato durante onPricing');
+  d.resolve();
+  await tick();
+  assert.strictEqual(undo.disabled, false, 'ANNULLA non riabilitato a fine azione');
+});
+
+test('setUndoEnabled(false) durante un\'azione: ANNULLA resta disabilitato a fine azione (#42)', async () => {
+  const s = makeSandbox();
+  const undo = s.menuItem('#ar-qr-menu-undo');
+  s.win.__AR_QRICAMBI.setUndoEnabled(true);
+  s.win.__AR_QRICAMBI.onUndo = async () => { s.win.__AR_QRICAMBI.setUndoEnabled(false); };
+  await undo.click();
+  await tick();
+  assert.strictEqual(undo.disabled, true, 'ANNULLA riabilitato in modo fisso dopo onUndo');
+});
+
+test('ANNULLA con undo non abilitato: onUndo non parte', async () => {
+  const s = makeSandbox();
+  let undoCalls = 0;
+  s.win.__AR_QRICAMBI.onUndo = async () => { undoCalls++; };
+  await s.menuItem('#ar-qr-menu-undo').click();
+  assert.strictEqual(undoCalls, 0);
+});
+
+test('a onPricing concluso il click su ANNULLA chiama onUndo (#42)', async () => {
+  const s = makeSandbox();
+  let undoCalls = 0;
+  s.win.__AR_QRICAMBI.setUndoEnabled(true);
+  s.win.__AR_QRICAMBI.onPricing = async () => {};
+  s.win.__AR_QRICAMBI.onUndo = async () => { undoCalls++; };
+  s.keydown('p');
+  await tick();
+  await s.menuItem('#ar-qr-menu-undo').click();
+  assert.strictEqual(undoCalls, 1);
+});
+
+test('onUndo che lancia: console.error con TAG, nessuna unhandledRejection, guardia rilasciata (#42)', async () => {
+  const s = makeSandbox();
+  const unhandled = [];
+  const onUnhandled = (err) => unhandled.push(err);
+  process.on('unhandledRejection', onUnhandled);
+  let pricing = 0;
+  try {
+    s.win.__AR_QRICAMBI.setUndoEnabled(true);
+    s.win.__AR_QRICAMBI.onUndo = async () => { throw new Error('undo-boom'); };
+    s.win.__AR_QRICAMBI.onPricing = async () => { pricing++; };
+    await s.menuItem('#ar-qr-menu-undo').click();
+    await tick(); await tick();
+  } finally {
+    process.removeListener('unhandledRejection', onUnhandled);
+  }
+  assert.strictEqual(unhandled.length, 0, 'promise rifiutata non gestita da ANNULLA');
+  assert.ok(s.logs.error.some((a) => String(a[0]).includes('[AR-QR-FAB')
+    && a.some((x) => x instanceof Error && x.message === 'undo-boom')), 'console.error(TAG, ...) mancante');
+  assert.strictEqual(s.menuItem('#ar-qr-menu-undo').disabled, false, 'ANNULLA non riabilitato dopo errore di onUndo');
+  s.keydown('p');
+  await tick();
+  assert.strictEqual(pricing, 1, 'guardia rimasta bloccata dopo errore di onUndo');
+});
+
 (async () => {
   let passed = 0, failed = 0;
   for (const [name, fn] of cases) {

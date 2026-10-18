@@ -76,6 +76,17 @@
   const actionItems = [];
   let actionRunning = false;
 
+  // ANNULLA (v1.1.4) ha uno stato proprio: lo decide pricing.content.js via
+  // setUndoEnabled (c'e uno snapshot da ripristinare o no), non un reset fisso.
+  // Durante un'azione e disabilitato come le altre voci (#42); a fine azione
+  // torna a riflettere undoEnabled, non a "abilitato".
+  const undoItem = () => fab.querySelector('#ar-qr-menu-undo');
+  let undoEnabled = false;
+  function syncUndoItem() {
+    const item = undoItem();
+    if (item) item.disabled = !undoEnabled || actionRunning;
+  }
+
   async function runAction(handlerName, source) {
     const handler = window.__AR_QRICAMBI[handlerName];
     if (typeof handler !== 'function') {
@@ -88,11 +99,13 @@
     }
     actionRunning = true;
     actionItems.forEach((it) => { it.disabled = true; });
+    syncUndoItem();
     try { await handler(); }
     catch (err) { console.error(TAG, handlerName, 'errore:', err); }
     finally {
       actionRunning = false;
       actionItems.forEach((it) => { it.disabled = false; });
+      syncUndoItem();
     }
   }
 
@@ -110,21 +123,18 @@
 
   // ── ANNULLA (v1.1.4): voce disabilitata finché non c'è uno snapshot ──
   // setUndoEnabled è chiamato da pricing.content.js dopo un Applica riuscito
-  // e dopo un Annulla. Binding dedicato (non bindMenuItem) perché lo stato
-  // finale del bottone lo decide onUndo via setUndoEnabled, non un reset fisso.
+  // e dopo un Annulla (anche mentre runAction e in corso: il bottone resta
+  // disabilitato fino a fine azione, poi syncUndoItem applica lo stato).
+  // Il click passa da runAction (#42): niente ANNULLA durante Pricing/Import, e
+  // viceversa. Non e in actionItems perche il suo stato finale non e fisso.
   window.__AR_QRICAMBI.setUndoEnabled = function (enabled) {
-    const item = fab.querySelector('#ar-qr-menu-undo');
-    if (item) item.disabled = !enabled;
+    undoEnabled = !!enabled;
+    syncUndoItem();
   };
-  fab.querySelector('#ar-qr-menu-undo').addEventListener('click', async (e) => {
+  undoItem().addEventListener('click', () => {
     fab.classList.remove('open');
-    const item = e.currentTarget;
-    if (item.disabled) return;
-    const handler = window.__AR_QRICAMBI.onUndo;
-    if (typeof handler !== 'function') { console.warn(TAG, 'onUndo non registrato'); return; }
-    item.disabled = true; // previene doppio click; lo stato finale lo imposta onUndo
-    try { await handler(); }
-    catch (err) { console.error(TAG, 'onUndo errore:', err); item.disabled = false; }
+    if (!undoEnabled) return; // nessuno snapshot da ripristinare
+    return runAction('onUndo', 'menu');
   });
 
   // ── Handler combinato pricing → conferma salvataggio → import (#31) ──
