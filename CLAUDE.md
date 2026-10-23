@@ -93,6 +93,7 @@ node tests/test_fab_shortcut.js
 node tests/test_onboth_gating.js
 node tests/test_parse_num.js
 node tests/test_import_payload_guard.js
+node tests/test_import_response_branches.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
