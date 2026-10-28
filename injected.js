@@ -6,7 +6,7 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.1.11]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.0]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
@@ -58,12 +58,42 @@
   // Segnala al content script quale preventivo la pagina sta aprendo
   // (GET /api/Quote/find/<id>): serve a import.content.js per accorgersi che il
   // preventivo aperto non e' quello dell'ultimo payload confermato.
+  // Ritorna l'id aperto (o null) perche' il chiamante ne legga poi la risposta.
   function noteOpenedQuote(method, url) {
     try {
-      if ((method || "").toUpperCase() !== "GET" || !url) return;
+      if ((method || "").toUpperCase() !== "GET" || !url) return null;
       const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
-      if (m) window.postMessage({ source: "AR_QUOTE_OPEN", id: m[1] }, "*");
+      if (m) {
+        window.postMessage({ source: "AR_QUOTE_OPEN", id: m[1] }, "*");
+        return m[1];
+      }
     } catch (e) { /* no-op */ }
+    return null;
+  }
+
+  // Cliente del preventivo aperto (arauto#4911): pricing.content.js lo manda al
+  // bridge per sapere se il cliente e' su una fascia sconto di recupero. Il
+  // `customerdata` e' lo stesso campo che la PATCH porta e che l'import usa;
+  // la forma della risposta di find/<id> viene dal bundle, non da una pagina
+  // reale: si cerca il campo anche un livello sotto (data/result).
+  function customerdataDi(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    for (const o of [obj, obj.data, obj.result]) {
+      if (!o || typeof o !== "object") continue;
+      const cd = o.customerdata || o.customerData;
+      if (cd && typeof cd === "object" && !Array.isArray(cd)) return cd;
+    }
+    return null;
+  }
+
+  function publishCustomer(id, body) {
+    try {
+      const parsed = typeof body === "string" ? JSON.parse(body) : body;
+      const cd = customerdataDi(parsed);
+      window.postMessage({ source: "AR_QUOTE_CUSTOMER", id, customerdata: cd }, "*");
+      console.log(TAG, "GET quote/find/" + id + ": customerdata",
+                  cd ? "presente" : "ASSENTE (chiavi: " + Object.keys(parsed || {}).join(",") + ")");
+    } catch (e) { /* risposta non JSON: il pricing prezza senza fascia */ }
   }
 
   function logRejected(via, status, parsed) {
@@ -85,11 +115,12 @@
     const [resource, init] = args;
     let pending = null;
     let seq = 0;
+    let findId = null;
     try {
       const url = typeof resource === "string" ? resource : resource?.url;
       const method = (init?.method || "GET").toUpperCase();
       logTouch("fetch", method, url);
-      noteOpenedQuote(method, url);
+      findId = noteOpenedQuote(method, url);
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
       // ma il payload resta in sospeso finche' il server non risponde.
       pending = extractQuotePayload(method, url, init?.body);
@@ -102,6 +133,10 @@
       if (pending) {
         if (res && res.ok) publishConfirmed(pending, seq);
         else logRejected("fetch", res && res.status, pending);
+      }
+      // clone(): il body originale resta intatto per la pagina
+      if (findId && res && res.ok) {
+        res.clone().json().then((b) => publishCustomer(findId, b), () => {});
       }
     } catch (e) { /* no-op */ }
     return res;
@@ -122,7 +157,17 @@
     xhr.send = function (body) {
       try {
         logTouch("xhr", _method, _url);
-        noteOpenedQuote(_method, _url);
+        const findId = noteOpenedQuote(_method, _url);
+        if (findId) {
+          xhr.addEventListener("load", function () {
+            try {
+              if (xhr.status < 200 || xhr.status >= 300) return;
+              const rt = xhr.responseType;
+              publishCustomer(findId, rt === "json" ? xhr.response
+                                      : (!rt || rt === "text") ? xhr.responseText : null);
+            } catch (e) { /* no-op */ }
+          });
+        }
         const pending = extractQuotePayload(_method, _url, body);
         if (pending) {
           const seq = nextSeq();

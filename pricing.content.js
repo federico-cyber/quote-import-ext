@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.1.11]';
+  const TAG = '[AR-PRICING v1.2.0]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -71,6 +71,10 @@
       line-height: 1.6;
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
       display: none;
+      /* sopra il riquadro del guadagno: il toast è temporaneo e con più righe
+         (fascia di recupero, #4911) gli arriva sopra */
+      position: relative;
+      z-index: 1000000;
     }
     #ar-pricing-toast.visible { display: block; animation: ar-fade .2s ease; }
     #ar-pricing-toast.success { border-color: #3a4a1a; }
@@ -577,13 +581,81 @@
     });
   }
 
+  // ── CLIENTE DEL PREVENTIVO (arauto#4911) ──────────────────
+  // injected.js (MAIN) segnala il customerdata del preventivo aperto
+  // (GET quote/find/<id>) e di ogni PATCH confermata: id → customerdata.
+  const clientiPreventivo = new Map();
+  let ultimoPreventivo = null;
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    const d = event.data;
+    if (!d) return;
+    if (d.source === 'AR_QUOTE_CUSTOMER' && d.id) {
+      ultimoPreventivo = { id: String(d.id), href: location.href };
+      if (d.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.customerdata);
+    } else if (d.source === 'AR_QUOTE_IMPORT' && d.payload && d.payload.ID) {
+      ultimoPreventivo = { id: String(d.payload.ID), href: location.href };
+      if (d.payload.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.payload.customerdata);
+    }
+  });
+
+  const FASCIA_TIMEOUT_MS = 4000;
+  async function leggiFascia() {
+    const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
+    if (errore) return errore;
+    const override = parseInt(S.overrideCliforNumero, 10);
+    const { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
+    const body = override > 0 ? { override_clifor_numero: override } : { customerdata };
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), FASCIA_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': S.apiKey },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* corpo non JSON */ }
+      const esito = esitoFascia(res.status, data, override > 0 || !!customerdata);
+      console.log(TAG, `fascia cliente preventivo ${id}: HTTP ${res.status}`, esito);
+      return esito;
+    } catch (e) {
+      console.warn(TAG, 'fascia cliente: server non raggiungibile', e);
+      return esitoFascia(0, null, !!customerdata);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function toastFascia(f, nRecupero) {
+    const span = document.createElement('span');
+    if (f.stato === 'recupero') {
+      span.className = 'o';
+      span.textContent = `● ${f.nome} · fascia ${f.listino} di recupero: ` +
+        `−${f.recupero.punti} sugli sconti da ${f.recupero.soglia} in su (${parseInt(nRecupero, 10)} righe)`;
+    } else if (f.stato === 'normale') {
+      span.className = 'm';
+      span.textContent = `● ${f.nome} · fascia ${f.listino}`;
+    } else if (f.stato === 'spento') {
+      return '';
+    } else {
+      span.className = 'r';
+      span.textContent = `● Fascia sconto non verificata (${f.motivo}): prezzi normali`;
+    }
+    return span.outerHTML + '<br>';
+  }
+
   // ── HANDLER: registrato su window.__AR_QRICAMBI per il menu FAB ──
   window.__AR_QRICAMBI = window.__AR_QRICAMBI || { onPricing: null, onImport: null };
   window.__AR_QRICAMBI.onPricing = async function () {
     injectPricingUi(); // rete di sicurezza se l'SPA ha ripulito il body
     try {
       await loadSettings(); // Ricarica prima di ogni esecuzione
-      const res = await esegui();
+      const fascia = await leggiFascia();
+      const res = await esegui(fascia.stato === 'recupero' ? fascia.recupero : null);
+      const nRecupero = (res.dettagli || []).filter(r => r.recuperoApplicato).length;
+      res.fascia = { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: nRecupero };
 
       if (res.tot === 0) {
         showToast(`
@@ -594,6 +666,7 @@
       } else if (res.ok === 0) {
         showToast(
           `<b>0 righe aggiornate</b><br>` +
+          toastFascia(fascia, 0) +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
@@ -609,6 +682,7 @@
         const label = nRighe !== 1 ? 'righe aggiornate' : 'riga aggiornata';
         showToast(
           `<b>✓ ${nRighe} ${label}</b><br>` +
+          toastFascia(fascia, nRecupero) +
           (rA ? toastLine('g', 'Regola A', rA) : '') +
           (rB ? toastLine('b', 'Regola B', rB) : '') +
           (rC ? toastLine('o', 'Regola C', rC) : '') +
@@ -727,7 +801,7 @@
   }
 
   // ── LOGICA PRINCIPALE ──────────────────────────────────────
-  async function esegui() {
+  async function esegui(recupero) {
     const table = trovaTabellaPreventivo();
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
@@ -745,7 +819,7 @@
 
     // Il vecchio FAB standalone (#ar-pricing-btn) non esiste più dalla unificazione;
     // il counter per-riga è stato rimosso (il FAB unico #ar-qr-fab-btn chiude il menu al click).
-    return await eseguiConIndici(table, col, null);
+    return await eseguiConIndici(table, col, null, recupero);
   }
 
   function shrinkDescriptionColumn(table, col) {
@@ -822,7 +896,11 @@
     return Math.min(99, Math.max(0, Math.round(x)));
   }
 
-  function calcolaRiga(acquisto, listino, S) {
+  // `recupero` = {soglia, punti} se il cliente è su una fascia sconto di
+  // recupero (arauto#4911), altrimenti null: ogni sconto >= soglia perde
+  // `punti` punti, prima del ritocco al centesimo (#24), che sposta lo sconto
+  // al massimo di 2 punti.
+  function calcolaRiga(acquisto, listino, S, recupero) {
     let regola, scontoCliente, listinoFin;
 
     if (listino && listino > 0) {
@@ -858,6 +936,9 @@
     }
 
     scontoCliente = scontoIntero(scontoCliente);
+    const recuperoApplicato = !!recupero && scontoCliente >= recupero.soglia;
+    if (recuperoApplicato) scontoCliente = scontoIntero(scontoCliente - recupero.punti);
+    const scontoCalcolato = scontoCliente; // prima del ritocco al centesimo
 
     // #24: Qricambi tiene la Vendita al centesimo e ne ricava lo sconto, quindi
     // uno sconto intero resta intero solo se listino × (1 − sconto) cade sul
@@ -865,10 +946,14 @@
     // listino del minimo necessario (< 0,20 €, il margine non scende mai); se
     // per quello sconto servirebbe di più, provo lo sconto intero più vicino,
     // prima quello più basso.
+    // Con la fascia di recupero il ritocco non ridà i punti tolti (mai sopra
+    // lo sconto ridotto) e non porta a soglia una riga che non c'era: fra
+    // 0 e −5 c'è sempre un multiplo di 5, quindi un candidato valido esiste.
     const listinoCent = Math.round(listinoFin * 100);
     for (const d of [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]) {
       const s = scontoCliente + d;
       if (s < 0 || s > 99) continue;
+      if (recupero && (recuperoApplicato ? d > 0 : s >= recupero.soglia)) continue;
       const cent = listinoAlCentesimo(listinoCent, s);
       if (cent - listinoCent < RITOCCO_MAX_CENT) {
         scontoCliente = s;
@@ -877,7 +962,7 @@
       }
     }
     const prezzoClienteTarget = Math.round(listinoFin * 100) * (100 - scontoCliente) / 10000;
-    return { regola, scontoCliente, listinoFin, prezzoClienteTarget };
+    return { regola, scontoCliente, scontoCalcolato, listinoFin, prezzoClienteTarget, recuperoApplicato };
   }
 
   // Più piccolo listino (in centesimi) ≥ listinoCent con listino × (100 − sconto)
@@ -889,9 +974,70 @@
     const passo = 100 / a;
     return Math.ceil(listinoCent / passo) * passo;
   }
+
+  // ── FASCIA SCONTO DEL CLIENTE (arauto#4911) ──
+  // Preventivo aperto: il primo id dell'URL (idsFromHref, defaults.js) di cui si
+  // conosce il cliente; poi l'ultimo preventivo visto aprire o salvare, se è
+  // stato visto su questa stessa pagina (stesso URL); poi il primo id
+  // dell'URL, senza cliente. Mai il cliente di un preventivo di un'altra pagina.
+  // `ultimo` = { id, href } del preventivo segnalato per ultimo, o null.
+  function scegliPreventivo(href, ultimo, clienti) {
+    const ids = idsFromHref(href);
+    const u = ultimo && ultimo.id ? String(ultimo.id) : null;
+    const id = ids.find((x) => clienti.has(x))
+      || (u && clienti.has(u) && (!ids.length || ultimo.href === href) ? u : null)
+      || ids[0] || u || null;
+    return { id, customerdata: (id && clienti.get(id)) || null };
+  }
+
+  // Opzioni minime per leggere la fascia: senza indirizzo o senza chiave non
+  // si chiama il server (sarebbe un 401 certo, o 4 s di timeout per niente).
+  function opzioniFascia(backendUrl, apiKey) {
+    const url = urlFascia(backendUrl);
+    if (!url) return { errore: { stato: 'errore', motivo: 'indirizzo del server non valido nelle Opzioni' } };
+    if (!String(apiKey || '').trim()) {
+      return { errore: { stato: 'errore', motivo: 'X-API-Key non configurata nelle Opzioni' } };
+    }
+    return { url };
+  }
+
+  // Endpoint della fascia accanto a quello dell'import configurato nelle Opzioni.
+  function urlFascia(backendUrl) {
+    const u = String(backendUrl || '').replace(/\/+$/, '');
+    if (/\/api\/quote-import$/.test(u)) return u + '/fascia-cliente';
+    try { return new URL(u).origin + '/api/quote-import/fascia-cliente'; }
+    catch (e) { return null; }
+  }
+
+  // Esito della chiamata → cosa fa il pricing. Solo `recupero` cambia i prezzi:
+  // ogni dubbio (cliente non noto, ambiguo, bridge giù) prezza come prima e
+  // lo dice nel toast. `spento` = flag del bridge OFF: nessuna riga nel toast.
+  function esitoFascia(status, body, haCliente) {
+    const b = (body && typeof body === 'object') ? body : {};
+    if (status === 200 && b.attivo === false) return { stato: 'spento' };
+    if (status === 200 && b.attivo === true) {
+      const soglia = Number(b.soglia), punti = Number(b.punti);
+      const nome = String(b.ragione_sociale || b.numero || '');
+      if (b.recupero === true) {
+        if (!(Number.isFinite(soglia) && Number.isFinite(punti) && punti > 0)) {
+          return { stato: 'errore', motivo: 'risposta del server senza soglia/punti' };
+        }
+        return { stato: 'recupero', nome, listino: b.listino, recupero: { soglia, punti } };
+      }
+      return { stato: 'normale', nome, listino: b.listino };
+    }
+    if (status === 400 && !haCliente) {
+      return { stato: 'sconosciuto', motivo: 'cliente del preventivo non ancora letto: salva il preventivo e rilancia' };
+    }
+    if (status === 422) {
+      return { stato: 'sconosciuto', motivo: b.ambiguous
+        ? 'cliente con più anagrafiche in SIRJ' : 'cliente non riconosciuto in SIRJ' };
+    }
+    return { stato: 'errore', motivo: status ? `server ${status}` : 'server non raggiungibile' };
+  }
   // ── fine calcolaRiga ──
 
-  async function eseguiConIndici(table, col, onProgress) {
+  async function eseguiConIndici(table, col, onProgress, recupero) {
     const minCols = Math.max(
       col.acquisto ?? 0,
       col.listino ?? 0,
@@ -936,8 +1082,8 @@
       if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
       if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });
 
-      const { regola, scontoCliente, listinoFin, prezzoClienteTarget } =
-        calcolaRiga(acquisto, listino, S);
+      const { regola, scontoCliente, listinoFin, prezzoClienteTarget, recuperoApplicato } =
+        calcolaRiga(acquisto, listino, S, recupero);
       let successo = false;
 
       // Listino da scrivere: fittizio in Regola B, ritoccato di qualche centesimo
@@ -995,7 +1141,7 @@
         }
 
         ok++;
-        dettagli.push({ regola, utileTotale, ricaricoEffettivo });
+        dettagli.push({ regola, utileTotale, ricaricoEffettivo, recuperoApplicato });
         lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
         skip++; skipReasons.setFailed++;

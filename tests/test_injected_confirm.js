@@ -184,6 +184,100 @@ test('xhr: PATCH mai risposta (abort/rete) non pubblica il payload', async () =>
     'payload pubblicato per una PATCH XHR mai confermata dal server');
 });
 
+// ── E. Cliente del preventivo aperto (arauto#4911) ───────────────────────
+const FIND_URL = 'https://app.qricambi.com/api/Quote/find/365954';
+const CLIENTE = { CustomerName: 'AUTOFFICINA GIMA SNC', CustomerCode: '158' };
+const customerMsgs = (messages) => messages.filter((m) => m.source === 'AR_QUOTE_CUSTOMER');
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+function fakeResponse(ok, body) {
+  return { ok, status: ok ? 200 : 500,
+           clone() { return { json: async () => body }; } };
+}
+
+test('fetch: GET find/<id> pubblica il customerdata del preventivo', async () => {
+  const { win, messages } = makeSandbox({
+    fetchImpl: async () => fakeResponse(true, { ID: 365954, customerdata: CLIENTE }),
+  });
+  await win.fetch(FIND_URL);
+  await flush();
+  const m = customerMsgs(messages);
+  assert.strictEqual(m.length, 1);
+  assert.strictEqual(m[0].id, '365954');
+  assert.deepStrictEqual(m[0].customerdata, CLIENTE);
+  assert.ok(messages.some((x) => x.source === 'AR_QUOTE_OPEN'), 'AR_QUOTE_OPEN sparito');
+});
+
+test('fetch: customerdata un livello sotto (data) viene trovato', async () => {
+  const { win, messages } = makeSandbox({
+    fetchImpl: async () => fakeResponse(true, { data: { customerData: CLIENTE } }),
+  });
+  await win.fetch(FIND_URL);
+  await flush();
+  assert.deepStrictEqual(customerMsgs(messages)[0].customerdata, CLIENTE);
+});
+
+test('fetch: risposta senza customerdata → customerdata null', async () => {
+  const { win, messages } = makeSandbox({
+    fetchImpl: async () => fakeResponse(true, { ID: 1, items: [] }),
+  });
+  await win.fetch(FIND_URL);
+  await flush();
+  const m = customerMsgs(messages);
+  assert.strictEqual(m.length, 1);
+  assert.strictEqual(m[0].customerdata, null);
+});
+
+test('fetch: find/<id> in errore non pubblica il cliente', async () => {
+  const { win, messages } = makeSandbox({
+    fetchImpl: async () => fakeResponse(false, { customerdata: CLIENTE }),
+  });
+  await win.fetch(FIND_URL);
+  await flush();
+  assert.strictEqual(customerMsgs(messages).length, 0);
+});
+
+test('fetch: la Response restituita alla pagina è quella originale', async () => {
+  const r = fakeResponse(true, { customerdata: CLIENTE });
+  const { win } = makeSandbox({ fetchImpl: async () => r });
+  assert.strictEqual(await win.fetch(FIND_URL), r);
+});
+
+test('xhr: GET find/<id> 200 (testo) pubblica il customerdata', async () => {
+  const { win, messages, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const x = new win.XMLHttpRequest();
+  x.open('GET', FIND_URL);
+  x.send();
+  x.responseType = '';
+  x.responseText = JSON.stringify({ customerdata: CLIENTE });
+  xhrs[0]._respond(200);
+  assert.deepStrictEqual(customerMsgs(messages)[0].customerdata, CLIENTE);
+});
+
+test('xhr: GET find/<id> 200 (json) pubblica il customerdata', async () => {
+  const { win, messages, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const x = new win.XMLHttpRequest();
+  x.open('GET', FIND_URL);
+  x.send();
+  x.responseType = 'json';
+  x.response = { customerdata: CLIENTE };
+  xhrs[0]._respond(200);
+  assert.deepStrictEqual(customerMsgs(messages)[0].customerdata, CLIENTE);
+});
+
+test('xhr: GET find/<id> 404 o testo non JSON non pubblica il cliente', async () => {
+  const { win, messages, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const a = new win.XMLHttpRequest();
+  a.open('GET', FIND_URL); a.send();
+  a.responseText = JSON.stringify({ customerdata: CLIENTE });
+  xhrs[0]._respond(404);
+  const b = new win.XMLHttpRequest();
+  b.open('GET', FIND_URL); b.send();
+  b.responseText = '<html>';
+  xhrs[1]._respond(200);
+  assert.strictEqual(customerMsgs(messages).length, 0);
+});
+
 (async () => {
   let passed = 0, failed = 0;
   for (const [name, fn] of cases) {

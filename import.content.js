@@ -1,9 +1,9 @@
-// import.content.js — AR AUTO — Qricambi v1.1.11 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.2.0 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.1.11]";
+  const TAG = "[QUOTE-IMPORT v1.2.0]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
@@ -51,18 +51,6 @@
     console.log(TAG, "received payload from main-world ID=", data.payload.ID,
                 "items=", data.payload.items.length);
   });
-
-  // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
-  // aperto. Il formato esatto dell'URL Qricambi non e' documentato: se non c'e'
-  // nessun candidato l'URL non dice nulla e si ricade su openQuoteId.
-  function idsFromHref(href) {
-    const rest = String(href || "").replace(/^[a-z][a-z0-9+.-]*:\/\/[^\/]*/i, "");
-    const ids = [];
-    const re = /(?<=[\/=&?#])(\d{4,})(?=[\/&?#]|$)/g;
-    let m;
-    while ((m = re.exec(rest))) ids.push(m[1]);
-    return ids;
-  }
 
   // Il payload e' del preventivo aperto? 'match' | 'mismatch' | 'unknown'.
   function checkOpenQuote(payloadId) {

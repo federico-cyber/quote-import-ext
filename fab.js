@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.1.11]';
+  const TAG = '[AR-QR-FAB v1.2.0]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
@@ -148,6 +148,7 @@
   // riuscito su TUTTE le righe; una sola riga saltata o fallita lo blocca.
 
   // Motivo per cui NON importare, o null se l'esito del pricing e' pulito.
+  const FASCIA_VERIFICATA = new Set(['recupero', 'normale', 'spento']);
   function bothBlockReason(res) {
     if (!res || typeof res !== 'object') return 'esito del pricing non disponibile';
     if (res.error) return `errore nel pricing (${res.error})`;
@@ -157,6 +158,14 @@
     const fromReasons = Object.values(reasons).reduce((a, n) => a + (Number(n) || 0), 0);
     const skipped = Math.max(Number(res.skip) || 0, fromReasons);
     if (skipped > 0) return `${skipped} righe saltate o fallite dal pricing`;
+    // arauto#4911: un cliente su fascia di recupero prezzato senza recupero non
+    // deve arrivare in SIRJ. Fascia non letta (server giu', cliente non noto)
+    // = niente import automatico.
+    const fascia = res.fascia;
+    if (!fascia || !FASCIA_VERIFICATA.has(fascia.stato)) {
+      const motivo = fascia && fascia.motivo ? ` (${fascia.motivo})` : '';
+      return `fascia sconto del cliente non verificata${motivo}`;
+    }
     return null;
   }
 
