@@ -20,7 +20,7 @@ Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage` |
+| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage`; posta anche il cliente del preventivo aperto (`AR_QUOTE_CUSTOMER`) |
 | `defaults.js` | ISOLATED, document_idle | Unico `const DEFAULTS` flat (pricing + backend + injection) |
 | `fab.js` | ISOLATED, document_idle | Inietta l'unico FAB + menu, espone `window.__AR_QRICAMBI = { onPricing, onImport }` |
 | `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
@@ -88,6 +88,7 @@ Nessuna CI su questo repo. Test node puri, zero dipendenze:
 ```
 node tests/test_injected_confirm.js
 node tests/test_calcola_riga.js
+node tests/test_fascia_recupero.js
 node tests/test_import_fallback.js
 node tests/test_fab_shortcut.js
 node tests/test_onboth_gating.js
@@ -140,6 +141,34 @@ lo sconto intero più vicino) e il listino viene scritto in **ogni** regola, non
 solo in B. Decisione di Fede (28/09): solo con Alt+Shift+P, le righe prezzate a
 mano restano come le scrive lui. La riscrittura dello sconto dopo la Vendita
 resta come rete di sicurezza: non toglierla.
+
+### Fascia sconto di recupero (arauto#4911)
+
+Clienti su una fascia di recupero (1106 «RECUPERO DA 106», 1100 «RECUPERO DA 100»):
+dopo le regole A/C/B e lo sconto intero, ogni sconto **≥ soglia** perde **punti** punti
+(55 → 50, 60 → 55); sotto soglia non cambia nulla. Poi il ritocco al centesimo (#24),
+che sposta lo sconto di al massimo ±2: il recupero toglie sempre almeno 3 punti.
+
+- **Chi decide.** Soglia, punti e l'elenco delle fasce stanno nel bridge
+  (`arauto/shared/fascia_recupero.py`): `onPricing` chiama
+  `POST <backendUrl>/fascia-cliente` (stessa `X-API-Key` dell'import, timeout 4 s) col
+  `customerdata` del preventivo aperto, o con `override_clifor_numero` se impostato.
+  L'estensione non ne tiene una copia.
+- **Da dove arriva il cliente.** `injected.js` legge la risposta di
+  `GET /api/Quote/find/<id>` (`res.clone()`, la pagina riceve la Response originale) e
+  posta `{source: "AR_QUOTE_CUSTOMER", id, customerdata}`; anche ogni PATCH confermata
+  porta il suo `customerdata`. `scegliPreventivo` usa l'id nell'URL e, solo se manca,
+  l'ultimo preventivo visto: un id nell'URL senza cliente noto non prende mai il cliente
+  di un altro preventivo. La forma di `find/<id>` viene dal bundle: la console logga
+  `customerdata presente` o `ASSENTE (chiavi: …)`, da controllare dal vivo.
+- **Nel dubbio, prezzi normali.** Solo `stato: 'recupero'` (risposta 200 con soglia e
+  punti validi) porta la regola. Flag del bridge spenta → nessuna riga nel toast.
+  Cliente non letto (400: «salva il preventivo e rilancia»), non trovato o ambiguo
+  (422), errore o server giù → riga rossa «Fascia sconto non verificata» e pricing
+  normale. Fascia normale → riga «NOME · fascia L»; recupero → riga arancione con
+  soglia, punti e righe toccate.
+- Test: `node tests/test_fascia_recupero.js` (regola, sweep, scelta del preventivo,
+  ogni ramo della risposta) e i casi `find/<id>` di `tests/test_injected_confirm.js`.
 
 ### setVueInput (in `pricing.content.js`)
 
