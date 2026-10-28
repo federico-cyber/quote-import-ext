@@ -23,6 +23,14 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
+// idsFromHref vive in defaults.js (caricato prima di import.content.js).
+const idsFromHref = (() => {
+  const c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
+  return vm.runInContext('idsFromHref', c);
+})();
+
+
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'import.content.js'), 'utf8');
 const POPUP_SRC = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
 
@@ -59,6 +67,7 @@ async function runImport(response) {
   const ctx = {
     console: { log() {} },
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
+    idsFromHref,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {

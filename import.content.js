@@ -52,18 +52,6 @@
                 "items=", data.payload.items.length);
   });
 
-  // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
-  // aperto. Il formato esatto dell'URL Qricambi non e' documentato: se non c'e'
-  // nessun candidato l'URL non dice nulla e si ricade su openQuoteId.
-  function idsFromHref(href) {
-    const rest = String(href || "").replace(/^[a-z][a-z0-9+.-]*:\/\/[^\/]*/i, "");
-    const ids = [];
-    const re = /(?<=[\/=&?#])(\d{4,})(?=[\/&?#]|$)/g;
-    let m;
-    while ((m = re.exec(rest))) ids.push(m[1]);
-    return ids;
-  }
-
   // Il payload e' del preventivo aperto? 'match' | 'mismatch' | 'unknown'.
   function checkOpenQuote(payloadId) {
     const id = String(payloadId);

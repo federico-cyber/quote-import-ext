@@ -591,18 +591,18 @@
     const d = event.data;
     if (!d) return;
     if (d.source === 'AR_QUOTE_CUSTOMER' && d.id) {
-      ultimoPreventivo = String(d.id);
-      if (d.customerdata) clientiPreventivo.set(ultimoPreventivo, d.customerdata);
+      ultimoPreventivo = { id: String(d.id), href: location.href };
+      if (d.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.customerdata);
     } else if (d.source === 'AR_QUOTE_IMPORT' && d.payload && d.payload.ID) {
-      ultimoPreventivo = String(d.payload.ID);
-      if (d.payload.customerdata) clientiPreventivo.set(ultimoPreventivo, d.payload.customerdata);
+      ultimoPreventivo = { id: String(d.payload.ID), href: location.href };
+      if (d.payload.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.payload.customerdata);
     }
   });
 
   const FASCIA_TIMEOUT_MS = 4000;
   async function leggiFascia() {
-    const url = urlFascia(S.backendUrl);
-    if (!url) return { stato: 'errore', motivo: 'indirizzo del server non valido nelle Opzioni' };
+    const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
+    if (errore) return errore;
     const override = parseInt(S.overrideCliforNumero, 10);
     const { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
     const body = override > 0 ? { override_clifor_numero: override } : { customerdata };
@@ -655,7 +655,7 @@
       const fascia = await leggiFascia();
       const res = await esegui(fascia.stato === 'recupero' ? fascia.recupero : null);
       const nRecupero = (res.dettagli || []).filter(r => r.recuperoApplicato).length;
-      res.fascia = { stato: fascia.stato, righeRecupero: nRecupero };
+      res.fascia = { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: nRecupero };
 
       if (res.tot === 0) {
         showToast(`
@@ -938,6 +938,7 @@
     scontoCliente = scontoIntero(scontoCliente);
     const recuperoApplicato = !!recupero && scontoCliente >= recupero.soglia;
     if (recuperoApplicato) scontoCliente = scontoIntero(scontoCliente - recupero.punti);
+    const scontoCalcolato = scontoCliente; // prima del ritocco al centesimo
 
     // #24: Qricambi tiene la Vendita al centesimo e ne ricava lo sconto, quindi
     // uno sconto intero resta intero solo se listino × (1 − sconto) cade sul
@@ -945,10 +946,14 @@
     // listino del minimo necessario (< 0,20 €, il margine non scende mai); se
     // per quello sconto servirebbe di più, provo lo sconto intero più vicino,
     // prima quello più basso.
+    // Con la fascia di recupero il ritocco non ridà i punti tolti (mai sopra
+    // lo sconto ridotto) e non porta a soglia una riga che non c'era: fra
+    // 0 e −5 c'è sempre un multiplo di 5, quindi un candidato valido esiste.
     const listinoCent = Math.round(listinoFin * 100);
     for (const d of [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]) {
       const s = scontoCliente + d;
       if (s < 0 || s > 99) continue;
+      if (recupero && (recuperoApplicato ? d > 0 : s >= recupero.soglia)) continue;
       const cent = listinoAlCentesimo(listinoCent, s);
       if (cent - listinoCent < RITOCCO_MAX_CENT) {
         scontoCliente = s;
@@ -957,7 +962,7 @@
       }
     }
     const prezzoClienteTarget = Math.round(listinoFin * 100) * (100 - scontoCliente) / 10000;
-    return { regola, scontoCliente, listinoFin, prezzoClienteTarget, recuperoApplicato };
+    return { regola, scontoCliente, scontoCalcolato, listinoFin, prezzoClienteTarget, recuperoApplicato };
   }
 
   // Più piccolo listino (in centesimi) ≥ listinoCent con listino × (100 − sconto)
@@ -971,17 +976,29 @@
   }
 
   // ── FASCIA SCONTO DEL CLIENTE (arauto#4911) ──
-  // Preventivo aperto: numeri a 4+ cifre nell'URL (come idsFromHref di
-  // import.content.js), il primo di cui si conosce il cliente; altrimenti
-  // l'ultimo preventivo visto aprire o salvare in questa pagina.
-  function scegliPreventivo(href, ultimoId, clienti) {
-    const rest = String(href || '').replace(/^[a-z][a-z0-9+.-]*:\/\/[^\/]*/i, '');
-    const ids = [];
-    const re = /(?<=[\/=&?#])(\d{4,})(?=[\/&?#]|$)/g;
-    let m;
-    while ((m = re.exec(rest)) !== null) ids.push(m[1]);
-    const id = ids.find((x) => clienti.has(x)) || ids[0] || ultimoId || null;
+  // Preventivo aperto: il primo id dell'URL (idsFromHref, defaults.js) di cui si
+  // conosce il cliente; poi l'ultimo preventivo visto aprire o salvare, se è
+  // stato visto su questa stessa pagina (stesso URL); poi il primo id
+  // dell'URL, senza cliente. Mai il cliente di un preventivo di un'altra pagina.
+  // `ultimo` = { id, href } del preventivo segnalato per ultimo, o null.
+  function scegliPreventivo(href, ultimo, clienti) {
+    const ids = idsFromHref(href);
+    const u = ultimo && ultimo.id ? String(ultimo.id) : null;
+    const id = ids.find((x) => clienti.has(x))
+      || (u && clienti.has(u) && (!ids.length || ultimo.href === href) ? u : null)
+      || ids[0] || u || null;
     return { id, customerdata: (id && clienti.get(id)) || null };
+  }
+
+  // Opzioni minime per leggere la fascia: senza indirizzo o senza chiave non
+  // si chiama il server (sarebbe un 401 certo, o 4 s di timeout per niente).
+  function opzioniFascia(backendUrl, apiKey) {
+    const url = urlFascia(backendUrl);
+    if (!url) return { errore: { stato: 'errore', motivo: 'indirizzo del server non valido nelle Opzioni' } };
+    if (!String(apiKey || '').trim()) {
+      return { errore: { stato: 'errore', motivo: 'X-API-Key non configurata nelle Opzioni' } };
+    }
+    return { url };
   }
 
   // Endpoint della fascia accanto a quello dell'import configurato nelle Opzioni.

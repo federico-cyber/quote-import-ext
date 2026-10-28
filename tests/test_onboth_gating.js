@@ -97,7 +97,8 @@ function makeSandbox({ onPricing, onImport }) {
 }
 
 const GOOD = () => ({ tot: 3, ok: 3, skip: 0,
-  skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [] });
+  skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [],
+  fascia: { stato: 'normale', righeRecupero: 0 } });
 
 const cases = [];
 function test(name, fn) { cases.push([name, fn]); }
@@ -171,6 +172,39 @@ test('onBoth non importa se skip>0 (ok>0)', async () => {
 });
 
 // ── 5. Successo: import solo dopo la vera scrittura, niente attesa fissa ──
+// arauto#4911: fascia del cliente non verificata = niente import automatico.
+for (const [nome, fascia] of [
+  ['errore (server giu\')', { stato: 'errore', motivo: 'server non raggiungibile' }],
+  ['sconosciuto (cliente non noto)', { stato: 'sconosciuto', motivo: 'cliente non riconosciuto in SIRJ' }],
+  ['assente', undefined],
+  ['stato inatteso', { stato: 'boh' }],
+]) {
+  test(`onBoth non importa se la fascia e' ${nome}`, async () => {
+    const r = await runBlocked({ ...GOOD(), fascia });
+    assert.strictEqual(r.imports, 0);
+    assert.strictEqual(r.alerts.length, 1);
+    assert.ok(/fascia sconto del cliente non verificata/.test(r.alerts[0]), r.alerts[0]);
+    if (fascia && fascia.motivo) assert.ok(r.alerts[0].includes(fascia.motivo), r.alerts[0]);
+  });
+}
+
+for (const stato of ['recupero', 'normale', 'spento']) {
+  test(`onBoth importa con fascia '${stato}'`, async () => {
+    let imports = 0;
+    const s = makeSandbox({
+      onPricing: async () => ({ ...GOOD(), fascia: { stato, righeRecupero: 1 } }),
+      onImport: async () => { imports++; },
+    });
+    const p = s.win.__AR_QRICAMBI.onBoth();
+    await flush();
+    s.writePatch();
+    await s.clock.advance(DEFAULTS.bothWaitMs + 5000);
+    await p;
+    assert.strictEqual(imports, 1);
+    assert.strictEqual(s.alerts.length, 0);
+  });
+}
+
 test('onBoth con ok>0 e nessuno skip importa UNA volta, solo dopo la scrittura (PATCH lenta 3000 ms)', async () => {
   let imports = 0;
   const s = makeSandbox({ onPricing: async () => GOOD(), onImport: async () => { imports++; } });

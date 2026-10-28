@@ -32,3 +32,16 @@ const DEFAULTS = {
   bothWaitMs: 15000,
   bothSettleMs: 600,
 };
+
+// Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
+// aperto. Il formato esatto dell'URL Qricambi non e' documentato: se non c'e'
+// nessun candidato l'URL non dice nulla. Unica copia, usata dall'import
+// (checkOpenQuote) e dal pricing (scegliPreventivo, fascia del cliente).
+function idsFromHref(href) {
+  const rest = String(href || "").replace(/^[a-z][a-z0-9+.-]*:\/\/[^\/]*/i, "");
+  const ids = [];
+  const re = /(?<=[\/=&?#])(\d{4,})(?=[\/&?#]|$)/g;
+  let m;
+  while ((m = re.exec(rest))) ids.push(m[1]);
+  return ids;
+}

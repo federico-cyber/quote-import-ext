@@ -63,7 +63,7 @@ che l'utente ha davanti. Tre regole:
   (anche `import.content.js` scarta i `seq` minori dell'ultimo accettato). Vince
   l'ultimo invio, non l'ultima risposta.
 - **Conferma sul mismatch.** `handleClick` confronta `payload.ID` con il preventivo
-  aperto: numeri a 4+ cifre nell'URL (`idsFromHref`), altrimenti l'ultimo id visto da
+  aperto: numeri a 4+ cifre nell'URL (`idsFromHref`, in `defaults.js`), altrimenti l'ultimo id visto da
   `injected.js` (`AR_QUOTE_OPEN` da `GET /api/Quote/find/<id>`, o l'ID dell'ultima PATCH
   confermata). Se non coincidono mostra una conferma con i **due** preventivi e importa
   solo se l'utente dice sì (scelta di Fede, #30). Se nessuna fonte dà un id
@@ -117,8 +117,9 @@ riempiendo le righe.
 
 Scelta di Fede «Fermati su errori». `onPricing` **ritorna** l'esito (`ok`/`tot`/`skip`/
 `skipReasons`; su eccezione `{..., error}`) e `onBoth` lo consuma: l'import NON parte se
-l'esito manca, c'e' un errore, `tot===0`, `ok===0` o anche **una sola** riga saltata/fallita
-(`skip` o qualunque `skipReasons.*`). Non c'e' piu' l'attesa fissa di 1800 ms: `onBoth`
+l'esito manca, c'e' un errore, `tot===0`, `ok===0`, anche **una sola** riga saltata/fallita
+(`skip` o qualunque `skipReasons.*`) o la fascia sconto del cliente non è verificata
+(arauto#4911). Non c'e' piu' l'attesa fissa di 1800 ms: `onBoth`
 registra un listener `chrome.storage.onChanged` su `lastPatchPayload` **prima** del pricing,
 poi attende la scrittura (quiete `bothSettleMs` dall'ultima, per le PATCH ravvicinate) entro
 `bothWaitMs`. Senza scrittura (PATCH rifiutata, mai partita, oppure payload identico al
@@ -147,7 +148,10 @@ resta come rete di sicurezza: non toglierla.
 Clienti su una fascia di recupero (1106 «RECUPERO DA 106», 1100 «RECUPERO DA 100»):
 dopo le regole A/C/B e lo sconto intero, ogni sconto **≥ soglia** perde **punti** punti
 (55 → 50, 60 → 55); sotto soglia non cambia nulla. Poi il ritocco al centesimo (#24),
-che sposta lo sconto di al massimo ±2: il recupero toglie sempre almeno 3 punti.
+che con la fascia di recupero ha due vincoli: su una riga ridotta prova solo sconti
+**più bassi** (il recupero toglie sempre almeno `punti` punti, `scontoCalcolato` è lo
+sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non diventa
+55). Fra 0 e −5 c'è sempre un multiplo di 5, quindi il listino resta al centesimo.
 
 - **Chi decide.** Soglia, punti e l'elenco delle fasce stanno nel bridge
   (`arauto/shared/fascia_recupero.py`): `onPricing` chiama
@@ -157,15 +161,20 @@ che sposta lo sconto di al massimo ±2: il recupero toglie sempre almeno 3 punti
 - **Da dove arriva il cliente.** `injected.js` legge la risposta di
   `GET /api/Quote/find/<id>` (`res.clone()`, la pagina riceve la Response originale) e
   posta `{source: "AR_QUOTE_CUSTOMER", id, customerdata}`; anche ogni PATCH confermata
-  porta il suo `customerdata`. `scegliPreventivo` usa l'id nell'URL e, solo se manca,
-  l'ultimo preventivo visto: un id nell'URL senza cliente noto non prende mai il cliente
-  di un altro preventivo. La forma di `find/<id>` viene dal bundle: la console logga
+  porta il suo `customerdata`. `scegliPreventivo` usa il primo id dell'URL
+  (`idsFromHref`, in `defaults.js`, la stessa dell'import) di cui si conosce il cliente;
+  poi l'ultimo preventivo visto, se è stato visto sulla stessa pagina (stesso URL: così un
+  numero dell'URL che non è un preventivo non blocca la fascia); poi il primo id
+  dell'URL senza cliente. Il cliente di un preventivo visto su un'altra pagina non si
+  prende mai. La forma di `find/<id>` viene dal bundle: la console logga
   `customerdata presente` o `ASSENTE (chiavi: …)`, da controllare dal vivo.
 - **Nel dubbio, prezzi normali.** Solo `stato: 'recupero'` (risposta 200 con soglia e
   punti validi) porta la regola. Flag del bridge spenta → nessuna riga nel toast.
   Cliente non letto (400: «salva il preventivo e rilancia»), non trovato o ambiguo
-  (422), errore o server giù → riga rossa «Fascia sconto non verificata» e pricing
-  normale. Fascia normale → riga «NOME · fascia L»; recupero → riga arancione con
+  (422), errore, server giù o `X-API-Key` vuota nelle Opzioni (in quel caso nessuna
+  chiamata) → riga rossa «Fascia sconto non verificata» e pricing normale. In
+  **Pricing + Import** invece l'import non parte: `bothBlockReason` pretende
+  `res.fascia.stato` fra `recupero`, `normale` e `spento`, altrimenti alert col motivo. Fascia normale → riga «NOME · fascia L»; recupero → riga arancione con
   soglia, punti e righe toccate.
 - Test: `node tests/test_fascia_recupero.js` (regola, sweep, scelta del preventivo,
   ogni ramo della risposta) e i casi `find/<id>` di `tests/test_injected_confirm.js`.

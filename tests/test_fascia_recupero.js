@@ -20,14 +20,17 @@ const vm = require('vm');
 const assert = require('assert');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
+const DEFAULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8');
 const start = SRC.indexOf('function scontoIntero');
 const end = SRC.indexOf('// ── fine calcolaRiga');
 assert.ok(start > 0 && end > start, 'blocco calcolaRiga non trovato in pricing.content.js');
 
-const ctx = { URL };
-vm.runInNewContext(SRC.slice(start, end) +
-  '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia };', ctx);
-const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia } = ctx.f;
+// idsFromHref vive in defaults.js, caricato prima di pricing.content.js.
+const ctx = vm.createContext({ URL });
+vm.runInContext(DEFAULTS_SRC, ctx);
+vm.runInContext(SRC.slice(start, end) +
+  '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia };', ctx);
+const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia } = ctx.f;
 
 const DEF = {
   regADelta: 20, regACapThreshold: 80, regACapValue: 70,
@@ -96,29 +99,79 @@ test('sweep: col recupero lo sconto non supera mai quello normale, vendita al ce
         ridotte++;
       }
       if (n.scontoCliente < 53) assert.strictEqual(r.scontoCliente, n.scontoCliente, msg);
+      // il ritocco al centesimo non porta a soglia una riga non ridotta
+      if (!r.recuperoApplicato) assert.ok(r.scontoCliente < REC.soglia, msg);
     }
   }
   assert.ok(ridotte > 100, `sweep troppo povero: ${ridotte}`);
+});
+
+test('sweep a passo 1: il ritocco non porta a soglia né ridà i punti tolti', () => {
+  const S1 = { ...DEF, uiRoundStep: 1 };
+  let vicine = 0, ridotte = 0;
+  for (let lis = 1; lis <= 300; lis += 3.37) {
+    const lisC = Math.round(lis * 100) / 100;
+    for (let pct = 0.2; pct <= 0.45; pct += 0.0031) {
+      const acq = Math.round(lisC * pct * 100) / 100;
+      if (acq <= 0) continue;
+      const r = calcolaRiga(acq, lisC, S1, REC);
+      const n = calcolaRiga(acq, lisC, S1, null);
+      const msg = `acq=${acq} lis=${lisC} n=${n.scontoCliente} r=${r.scontoCliente} applicato=${r.recuperoApplicato}`;
+      assert.ok(venditaAlCentesimo(r), msg);
+      if (!r.recuperoApplicato) {
+        assert.ok(r.scontoCliente < REC.soglia, msg);
+        if (r.scontoCliente >= 50) vicine++;
+      } else {
+        // riga ridotta: partenza − punti, e il ritocco non risale
+        assert.strictEqual(r.scontoCalcolato, n.scontoCalcolato - REC.punti, msg);
+        assert.ok(r.scontoCliente <= r.scontoCalcolato, msg);
+        ridotte++;
+      }
+    }
+  }
+  assert.ok(vicine > 50 && ridotte > 50, `sweep troppo povero: ${vicine} vicine, ${ridotte} ridotte`);
 });
 
 // ── scelta del preventivo e del cliente ──────────────────────────────────
 const GIMA = { CustomerCode: '158' };
 test('preventivo dall\'URL col cliente noto', () => {
   const m = new Map([['365954', GIMA]]);
-  const r = scegliPreventivo('https://app.qricambi.com/quote/365954?x=1', '111111', m);
+  const r = scegliPreventivo('https://app.qricambi.com/quote/365954?x=1',
+    { id: '111111', href: 'https://app.qricambi.com/quote/365954?x=1' }, m);
   assert.strictEqual(r.id, '365954');
   assert.deepStrictEqual(r.customerdata, GIMA);
 });
 test('URL senza id → ultimo preventivo visto', () => {
   const m = new Map([['111111', GIMA]]);
-  const r = scegliPreventivo('https://app.qricambi.com/?activetab=quote', '111111', m);
+  const r = scegliPreventivo('https://app.qricambi.com/?activetab=quote',
+    { id: '111111', href: 'https://app.qricambi.com/altra' }, m);
   assert.strictEqual(r.id, '111111');
   assert.deepStrictEqual(r.customerdata, GIMA);
 });
 test('id nell\'URL senza cliente noto → nessun customerdata (mai quello di un altro preventivo)', () => {
   const m = new Map([['111111', GIMA]]);
-  const r = scegliPreventivo('https://app.qricambi.com/quote/222222', '111111', m);
+  const r = scegliPreventivo('https://app.qricambi.com/quote/222222',
+    { id: '111111', href: 'https://app.qricambi.com/quote/111111' }, m);
   assert.strictEqual(r.id, '222222');
+  assert.strictEqual(r.customerdata, null);
+});
+test('numero nell\'URL che non è un preventivo → ultimo preventivo visto su questa pagina', () => {
+  const href = 'https://app.qricambi.com/quote?anno=2026&page=1234';
+  const m = new Map([['365954', GIMA]]);
+  const r = scegliPreventivo(href, { id: '365954', href }, m);
+  assert.strictEqual(r.id, '365954');
+  assert.deepStrictEqual(r.customerdata, GIMA);
+});
+test('ultimo preventivo visto su un\'altra pagina → non se ne prende il cliente', () => {
+  const m = new Map([['365954', GIMA]]);
+  const r = scegliPreventivo('https://app.qricambi.com/quote?anno=2026',
+    { id: '365954', href: 'https://app.qricambi.com/quote/365954' }, m);
+  assert.strictEqual(r.id, '2026');
+  assert.strictEqual(r.customerdata, null);
+});
+test('ultimo preventivo visto senza cliente noto → id senza customerdata', () => {
+  const r = scegliPreventivo('https://app.qricambi.com/', { id: '111111', href: 'x' }, new Map());
+  assert.strictEqual(r.id, '111111');
   assert.strictEqual(r.customerdata, null);
 });
 test('niente URL né preventivi visti → id null', () => {
@@ -128,6 +181,20 @@ test('niente URL né preventivi visti → id null', () => {
 });
 
 // ── indirizzo dell'endpoint ──────────────────────────────────────────────
+test('opzioniFascia: senza chiave o senza indirizzo non si chiama il server', () => {
+  const ok = opzioniFascia('http://100.86.223.69:5008/api/quote-import', 'k');
+  assert.strictEqual(ok.url, 'http://100.86.223.69:5008/api/quote-import/fascia-cliente');
+  assert.strictEqual(ok.errore, undefined);
+  for (const k of ['', '   ', null, undefined]) {
+    const e = opzioniFascia('http://100.86.223.69:5008/api/quote-import', k);
+    assert.strictEqual(e.url, undefined);
+    assert.strictEqual(e.errore.stato, 'errore');
+    assert.ok(/X-API-Key non configurata/.test(e.errore.motivo));
+  }
+  const u = opzioniFascia('non un url', 'k');
+  assert.strictEqual(u.errore.stato, 'errore');
+  assert.ok(/indirizzo/.test(u.errore.motivo));
+});
 test('urlFascia accanto all\'import configurato', () => {
   assert.strictEqual(urlFascia('http://100.86.223.69:5008/api/quote-import'),
     'http://100.86.223.69:5008/api/quote-import/fascia-cliente');

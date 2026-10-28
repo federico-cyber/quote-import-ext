@@ -24,6 +24,14 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
+// idsFromHref vive in defaults.js (caricato prima di import.content.js).
+const idsFromHref = (() => {
+  const c = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
+  return vm.runInContext('idsFromHref', c);
+})();
+
+
 const IMPORT_SRC = fs.readFileSync(path.join(__dirname, '..', 'import.content.js'), 'utf8');
 const INJECTED_SRC = fs.readFileSync(path.join(__dirname, '..', 'injected.js'), 'utf8');
 
@@ -66,6 +74,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
   const ctx = {
     console: { log() {} },
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
+    idsFromHref,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {
