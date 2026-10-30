@@ -54,7 +54,7 @@
   <div class="container">
     <header>
       <h1>AR <span>AUTO</span> — QRICAMBI</h1>
-      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.1</p>
+      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.2</p>
     </header>
 
     <div class="section">
@@ -129,6 +129,10 @@
         <div class="check-row"><input type="checkbox" id="quoteOpenSoloOk">
         <label for="quoteOpenSoloOk">Preventivo aperto: conta solo se Qricambi risponde bene</label></div>
         <span class="description">Acceso: il preventivo aperto si segna solo se la sua lettura va a buon fine (evita avvisi «ATTENZIONE» falsi all'import). Spento: lo si segna appena la pagina lo chiede (comportamento precedente). Ricarica Qricambi dopo averlo cambiato.</span></div>
+      <div class="form-group">
+        <div class="check-row"><input type="checkbox" id="regBSottoCosto">
+        <label for="regBSottoCosto">Pricing: listino sotto l'acquisto → Regola B</label></div>
+        <span class="description">Acceso: se il listino della riga non supera il prezzo d'acquisto (listino vecchio o basso) la riga si prezza con la Regola B, come senza listino, per non vendere sotto costo. Spento: Regola A col listino com'è (comportamento precedente). Vale dal prossimo pricing.</span></div>
     </div>
 
     <div class="actions">

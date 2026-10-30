@@ -1,7 +1,7 @@
 // defaults.js — single source of truth per l'estensione unificata "AR AUTO — Qricambi".
 // Caricato prima di fab.js / pricing.content.js / import.content.js (content scripts)
 // e di options.js / popup.js (pagine estensione).
-// Version: 1.2.1
+// Version: 1.2.2
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,
@@ -41,6 +41,9 @@ const DEFAULTS = {
   // #49: il preventivo "aperto" (mismatch all'import) si segna solo su una
   // GET find/<id> riuscita (2xx). Spento: lo si segna all'invio, come prima.
   quoteOpenSoloOk: true,
+  // #34 (v1.2.2): listino non sopra l'acquisto -> Regola B invece di Regola A
+  // (che venderebbe sotto costo). Spento: Regola A come prima. Vale dal prossimo pricing.
+  regBSottoCosto: true,
 };
 
 // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo

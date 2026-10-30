@@ -53,6 +53,30 @@ test('regola A normale: 60% fornitore → 40', () => {
   assert.strictEqual(r.prezzoClienteTarget, 60);
 });
 
+// #34: listino non sopra l'acquisto. Regola A darebbe sconto 0 e vendita =
+// listino, cioe' sotto costo: con l'interruttore acceso (default) si usa la B.
+test('#34 listino sotto l acquisto: Regola B, mai sotto costo', () => {
+  for (const [acq, lis] of [[120, 100], [100, 100], [50.37, 12.9]]) {
+    const r = calcolaRiga(acq, lis, DEF);
+    assert.strictEqual(r.regola, 'B', `acq ${acq} listino ${lis}`);
+    assert.ok(r.prezzoClienteTarget > acq,
+      `vendita ${r.prezzoClienteTarget} non sopra l acquisto ${acq}`);
+  }
+});
+
+test('#34 interruttore spento: Regola A col listino com e (comportamento di prima)', () => {
+  const r = calcolaRiga(120, 100, Object.assign({}, DEF, { regBSottoCosto: false }));
+  assert.strictEqual(r.regola, 'A');
+  assert.strictEqual(r.scontoCliente, 0);
+  assert.strictEqual(r.prezzoClienteTarget, 100);
+});
+
+test('#34 listino appena sopra l acquisto: resta Regola A', () => {
+  const r = calcolaRiga(99, 100, DEF);
+  assert.strictEqual(r.regola, 'A');
+  assert.ok(r.prezzoClienteTarget >= 99);
+});
+
 test('regola C: 90% fornitore → ricarico 77 sul netto, floor a 5', () => {
   const r = calcolaRiga(10, 100, DEF);
   assert.strictEqual(r.regola, 'C');
@@ -144,7 +168,10 @@ test('#24 sweep con i default → vendita sempre al centesimo, ritocco < 0,20', 
     for (let pct = 0.01; pct <= 1.2; pct += 0.013) {
       const acq = Math.round(lisC * pct * 100) / 100;
       if (acq <= 0) continue;
-      assertVenditaAlCentesimo(calcolaRiga(acq, lisC, DEF), lisC, `acq=${acq} lis=${lisC}`);
+      const r = calcolaRiga(acq, lisC, DEF);
+      // #34: listino non sopra l'acquisto -> Regola B (listino fittizio)
+      assert.strictEqual(r.regola === 'B', acq >= lisC, `regola ${r.regola} acq=${acq} lis=${lisC}`);
+      assertVenditaAlCentesimo(r, r.regola === 'B' ? 0 : lisC, `acq=${acq} lis=${lisC}`);
     }
   }
 });
