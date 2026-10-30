@@ -32,8 +32,12 @@
   //    (risposta arrivata fuori ordine) e non deve sovrascrivere quello nuovo.
   //  - openQuoteId: ultimo preventivo visto aprire (GET /api/Quote/find/<id>) o
   //    salvare (PATCH confermata) in questa pagina.
+  //  - lastOpenSeq: seq della find accettata per ultima. Due find sovrapposte
+  //    possono rispondere al contrario: vale l'ultima INVIATA, non l'ultima
+  //    arrivata.
   let lastSeq = 0;
   let openQuoteId = null;
+  let lastOpenSeq = 0;
 
   function isNewer(prevSeq, nextSeq) {
     // messaggio senza seq (injected.js vecchio): non si puo' ordinare, si accetta
@@ -49,7 +53,14 @@
     // (find in 404/5xx o prefetch inclusi). Ne vale uno solo, secondo l'interruttore.
     if (data.source === "AR_QUOTE_OPEN" || data.source === "AR_QUOTE_OPEN_INTENT") {
       const attivo = quoteOpenSoloOk ? "AR_QUOTE_OPEN" : "AR_QUOTE_OPEN_INTENT";
-      if (data.source === attivo && data.id) openQuoteId = String(data.id);
+      if (data.source !== attivo || !data.id) return;
+      if (!isNewer(lastOpenSeq, data.seq)) {
+        console.log(TAG, "find", data.id, "seq", data.seq,
+                    "piu' vecchia di", lastOpenSeq, "— scartata");
+        return;
+      }
+      if (data.seq) lastOpenSeq = data.seq;
+      openQuoteId = String(data.id);
       return;
     }
     if (data.source !== "AR_QUOTE_IMPORT" || !data.payload) return;

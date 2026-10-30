@@ -58,7 +58,7 @@
   // Segnala al content script quale preventivo la pagina sta aprendo
   // (GET /api/Quote/find/<id>): serve a import.content.js per accorgersi che il
   // preventivo aperto non e' quello dell'ultimo payload confermato.
-  // Ritorna l'id aperto (o null) perche' il chiamante ne legga poi la risposta.
+  // Il chiamante ne legge poi la risposta.
   //
   // quote-import-ext#49: `AR_QUOTE_OPEN` parte SOLO su risposta 2xx
   // (publishOpened), come `AR_QUOTE_CUSTOMER`: una find in 404/5xx non e' un
@@ -66,21 +66,27 @@
   // di prima: lo usa import.content.js solo con l'interruttore `quoteOpenSoloOk`
   // spento (rollback dalle Opzioni senza nuova release; injected.js, nel mondo
   // MAIN, non puo' leggere chrome.storage).
+  // Ogni find ha un `seq` in ordine di INVIO, uguale nell'intento e nella
+  // conferma: due find sovrapposte possono rispondere al contrario, e
+  // import.content.js scarta un AR_QUOTE_OPEN piu' vecchio dell'ultimo accettato.
+  // Ritorna { id, seq } (o null).
+  let openSeq = 0;
   function noteOpenedQuote(method, url) {
     try {
       if ((method || "").toUpperCase() !== "GET" || !url) return null;
       const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
       if (m) {
-        window.postMessage({ source: "AR_QUOTE_OPEN_INTENT", id: m[1] }, "*");
-        return m[1];
+        const find = { id: m[1], seq: ++openSeq };
+        window.postMessage({ source: "AR_QUOTE_OPEN_INTENT", id: find.id, seq: find.seq }, "*");
+        return find;
       }
     } catch (e) { /* no-op */ }
     return null;
   }
 
-  function publishOpened(id) {
+  function publishOpened(find) {
     try {
-      window.postMessage({ source: "AR_QUOTE_OPEN", id }, "*");
+      window.postMessage({ source: "AR_QUOTE_OPEN", id: find.id, seq: find.seq }, "*");
     } catch (e) { /* no-op */ }
   }
 
@@ -150,14 +156,14 @@
     const [resource, init] = args;
     let pending = null;
     let seq = 0;
-    let findId = null;
+    let find = null;
     let counted = false;
     let confirmed = false;
     try {
       const url = typeof resource === "string" ? resource : resource?.url;
       const method = (init?.method || "GET").toUpperCase();
       logTouch("fetch", method, url);
-      findId = noteOpenedQuote(method, url);
+      find = noteOpenedQuote(method, url);
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
       // ma il payload resta in sospeso finche' il server non risponde.
       pending = extractQuotePayload(method, url, init?.body);
@@ -172,10 +178,10 @@
           if (res && res.ok) { publishConfirmed(pending, seq); confirmed = true; }
           else logRejected("fetch", res && res.status, pending);
         }
-        if (findId && res && res.ok) {
-          publishOpened(findId);
+        if (find && res && res.ok) {
+          publishOpened(find);
           // clone(): il body originale resta intatto per la pagina
-          res.clone().json().then((b) => publishCustomer(findId, b), () => {});
+          res.clone().json().then((b) => publishCustomer(find.id, b), () => {});
         }
       } catch (e) { /* no-op */ }
       return res;
@@ -200,14 +206,14 @@
       let endSave = null; // chiude il "in volo" di questa PATCH (una volta sola)
       try {
         logTouch("xhr", _method, _url);
-        const findId = noteOpenedQuote(_method, _url);
-        if (findId) {
+        const find = noteOpenedQuote(_method, _url);
+        if (find) {
           xhr.addEventListener("load", function () {
             try {
               if (xhr.status < 200 || xhr.status >= 300) return;
-              publishOpened(findId);
+              publishOpened(find);
               const rt = xhr.responseType;
-              publishCustomer(findId, rt === "json" ? xhr.response
+              publishCustomer(find.id, rt === "json" ? xhr.response
                                       : (!rt || rt === "text") ? xhr.responseText : null);
             } catch (e) { /* no-op */ }
           });

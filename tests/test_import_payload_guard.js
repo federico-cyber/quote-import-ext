@@ -220,6 +220,24 @@ test('#49 spento: vale l intento all invio (come prima), AR_QUOTE_OPEN e ignorat
   assert.strictEqual(b.confirmTexts.length, 1, 'AR_QUOTE_OPEN non va doppiato a interruttore spento');
 });
 
+test('#49 find sovrapposte: un AR_QUOTE_OPEN piu vecchio (seq minore) arrivato dopo non vince', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote', confirms: [false] });
+  e.post({ source: 'AR_QUOTE_OPEN', id: B, seq: 2 }); // find/B inviata dopo, risposta prima
+  e.post({ source: 'AR_QUOTE_OPEN', id: A, seq: 1 }); // find/A, risposta in ritardo
+  await e.click(); // payload di A
+  assert.strictEqual(e.sent.length, 0, 'la risposta in ritardo di find/A ha sovrascritto B');
+  assert.ok(e.confirmTexts[0].includes(String(B)), e.confirmTexts[0]);
+});
+
+test('#49 find in sequenza: il seq maggiore aggiorna il preventivo aperto', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote' });
+  e.post({ source: 'AR_QUOTE_OPEN', id: B, seq: 1 });
+  e.post({ source: 'AR_QUOTE_OPEN', id: A, seq: 2 });
+  await e.click(); // payload di A, A aperto: solo la conferma dell import
+  assert.strictEqual(e.confirmTexts.length, 1, 'conferma di mismatch spuria');
+  assert.strictEqual(e.sent.length, 1);
+});
+
 // ── 2. risposte fuori ordine ────────────────────────────────────────────
 test('content script: un payload piu vecchio (seq minore) arrivato dopo non sovrascrive', async () => {
   const e = makeImportEnv({ stored: null });

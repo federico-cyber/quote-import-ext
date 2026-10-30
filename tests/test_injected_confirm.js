@@ -350,6 +350,23 @@ test('#49 xhr: find/<id> 200 pubblica AR_QUOTE_OPEN; 404 e 500 no', async () => 
   assert.strictEqual(intentMsgs(all).length, 3);
 });
 
+test('#49 xhr: due find sovrapposte portano il seq di invio, anche se rispondono al contrario', async () => {
+  const { win, all, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const urlA = FIND_URL.replace(/\d+$/, '111');
+  const urlB = FIND_URL.replace(/\d+$/, '222');
+  for (const u of [urlA, urlB]) {
+    const x = new win.XMLHttpRequest();
+    x.open('GET', u); x.send();
+    x.responseText = JSON.stringify({ customerdata: CLIENTE });
+  }
+  xhrs[xhrs.length - 1]._respond(200); // risponde prima B (inviata dopo)
+  xhrs[xhrs.length - 2]._respond(200);
+  const intent = intentMsgs(all).map((m) => [m.id, m.seq]);
+  const open = openMsgs(all).map((m) => [m.id, m.seq]);
+  assert.ok(intent[1][1] > intent[0][1], 'seq non crescente in ordine di invio: ' + JSON.stringify(intent));
+  assert.deepStrictEqual(open, [intent[1], intent[0]], 'seq della conferma diverso da quello dell intento');
+});
+
 // ── G. Salvataggi in volo (#47) ──────────────────────────────────────────
 // AR_QUOTE_SAVES porta valori ASSOLUTI {inflight, sentSeq, confirmedSeq}.
 const savesMsgs = (all) => all.filter((m) => m.source === 'AR_QUOTE_SAVES');
