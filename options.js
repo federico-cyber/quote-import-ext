@@ -40,6 +40,7 @@ function loadSettings() {
     document.getElementById('fallbackCliforNumero').value = s.fallbackCliforNumero;
     document.getElementById('importAttendeInVolo').checked = s.importAttendeInVolo !== false;
     document.getElementById('quoteOpenSoloOk').checked = s.quoteOpenSoloOk !== false;
+    document.getElementById('regBSottoCosto').checked = s.regBSottoCosto !== false;
     clearAllErrors();
   });
 }
@@ -113,6 +114,7 @@ function saveSettings() {
     fallbackCliforNumero:  Math.max(0, Math.floor(getNum('fallbackCliforNumero') || 5)),
     importAttendeInVolo:   document.getElementById('importAttendeInVolo').checked,
     quoteOpenSoloOk:       document.getElementById('quoteOpenSoloOk').checked,
+    regBSottoCosto:        document.getElementById('regBSottoCosto').checked,
   };
   chrome.storage.local.set(settings, () => flashStatus('Impostazioni salvate con successo!', false));
 }

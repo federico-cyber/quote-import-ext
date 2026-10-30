@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.1]';
+  const TAG = '[AR-PRICING v1.2.2]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -670,6 +670,7 @@
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
           `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
           'error'
@@ -689,6 +690,7 @@
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
+          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
           `<span class="m">Verifica e salva il preventivo.</span>`,
           'success'
@@ -806,7 +808,7 @@
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
     const col = mappaColonne(table);
-    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
+    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
 
     // Inietta colonna Utile se non esiste
     injectUtileColumn(table, col);
@@ -903,7 +905,12 @@
   function calcolaRiga(acquisto, listino, S, recupero) {
     let regola, scontoCliente, listinoFin;
 
-    if (listino && listino > 0) {
+    // #34: un listino non sopra l'acquisto (anagrafico vecchio o basso) in
+    // Regola A darebbe sconto 0 e vendita = listino, cioe' sotto costo: si
+    // tratta come listino assente (Regola B). Interruttore `regBSottoCosto`.
+    const listinoUsabile = listino && listino > 0 &&
+      (S.regBSottoCosto === false || listino > acquisto);
+    if (listinoUsabile) {
       const scontoForn = (1 - acquisto / listino) * 100;
       const step = S.uiRoundStep > 0 ? S.uiRoundStep : 1; // Previene modulo/div zero
       listinoFin = listino;
@@ -1064,7 +1071,7 @@
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 };
+    const skipReasons = { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
@@ -1108,13 +1115,22 @@
       // listino è già stato scritto, rollback.
       const scriviListino = listinoInp && (regola === 'B' || listinoFin !== listino);
       const listinoOrigValue = listinoInp ? listinoInp.value : null;
-      if (scriviListino) await setVueInput(listinoInp, listinoFin.toFixed(2));
-
-      successo = await setVueInput(scontoInp, scontoCliente);
+      // #34: se il listino non si scrive, sconto e vendita non si toccano (con
+      // lo sconto della Regola B su un listino vecchio si venderebbe sotto costo).
+      const listinoScritto = !scriviListino || await setVueInput(listinoInp, listinoFin.toFixed(2));
+      successo = listinoScritto && await setVueInput(scontoInp, scontoCliente);
       if (!successo && scriviListino && listinoOrigValue !== null) {
-        console.warn(TAG, `Regola ${regola} riga ${ri}: sconto fallito, rollback listino`);
-        await setVueInput(listinoInp, listinoOrigValue);
-        skip++; skipReasons.rollbackB++;
+        console.warn(TAG, `Regola ${regola} riga ${ri}: ${listinoScritto ? 'sconto' : 'listino'} fallito, rollback listino`);
+        if (await setVueInput(listinoInp, listinoOrigValue)) {
+          skip++;
+          if (listinoScritto) skipReasons.rollbackB++; else skipReasons.setFailed++;
+        } else {
+          // #34: listino rimasto a un valore diverso dall'originale. La riga
+          // entra nello snapshot: ANNULLA la puo' riprovare.
+          console.error(TAG, `Riga ${ri}: rollback listino a ${listinoOrigValue} NON riuscito`);
+          skip++; skipReasons.rollbackFallito++;
+          lastSnapshot.entries.push({ tr, fields: snapFields });
+        }
         continue;
       }
 
@@ -1172,23 +1188,36 @@
   // Riscrive i valori originali catturati in lastSnapshot riusando setVueInput.
   // I listener live restano sospesi (undoInProgress) per tutta la durata, così
   // non ricalcolano Utile/colori sui valori intermedi; reset visivo esplicito.
+  // Campo vuoto prima del pricing (riga senza listino) che Qricambi ripresenta
+  // come 0: setVueInput lo da' per diverso, ma il valore e' tornato.
+  function ripristinoVuoto(f) {
+    if (String(f.orig == null ? '' : f.orig).trim() !== '') return false;
+    const v = String(f.input.value == null ? '' : f.input.value).trim();
+    return v === '' || parseFloat(v.replace(',', '.')) === 0;
+  }
+
   async function annullaPricing() {
     if (!lastSnapshot || !lastSnapshot.entries.length) {
-      return { restored: 0, skipped: 0 };
+      return { restored: 0, skipped: 0, failed: 0 };
     }
     undoInProgress = true;
-    let restored = 0, skipped = 0;
+    let restored = 0, skipped = 0, failed = 0;
+    const daRiprovare = []; // #34: righe non ripristinate, ANNULLA resta disponibile
     try {
       for (let i = lastSnapshot.entries.length - 1; i >= 0; i--) {
         const entry = lastSnapshot.entries[i];
-        let anyRestored = false;
+        let presenti = 0, falliti = 0;
         for (const f of entry.fields) {
           if (f.input && f.input.isConnected) {
-            await setVueInput(f.input, f.orig);
-            anyRestored = true;
+            presenti++;
+            if (!await setVueInput(f.input, f.orig) && !ripristinoVuoto(f)) falliti++;
           }
         }
-        if (anyRestored) {
+        if (falliti) {
+          failed++;
+          daRiprovare.unshift(entry);
+          console.error(TAG, `Annulla: ${falliti} campi non ripristinati su una riga`);
+        } else if (presenti) {
           restored++;
           const utileCell = (entry.tr && entry.tr.querySelector)
             ? entry.tr.querySelector('.ar-utile-cell') : null;
@@ -1205,15 +1234,23 @@
     } finally {
       undoInProgress = false;
     }
-    lastSnapshot = { entries: [] }; // snapshot consumato
-    return { restored, skipped };
+    lastSnapshot = { entries: daRiprovare }; // consumato, tranne le righe fallite
+    return { restored, skipped, failed };
   }
 
   // onUndo: cablato dalla voce di menu "↩ Annulla Pricing" (fab.js)
   window.__AR_QRICAMBI.onUndo = async function () {
     try {
       const res = await annullaPricing();
-      if (res.restored === 0) {
+      if (res.failed) {
+        showToast(
+          `<b>Ripristino non riuscito su ${parseInt(res.failed, 10)} ${res.failed !== 1 ? 'righe' : 'riga'}</b><br>` +
+          (res.restored ? toastLine('g', 'Ripristinate', res.restored) : '') +
+          (res.skipped ? toastLine('r', 'Saltate (non più in pagina)', res.skipped) : '') +
+          `<span class="m">Controlla quelle righe o riprova ANNULLA.</span>`,
+          'error'
+        );
+      } else if (res.restored === 0) {
         showToast(`
           <b>Nessuna riga da ripristinare</b><br>
           <span class="m">Le righe dell'ultima applicazione non sono

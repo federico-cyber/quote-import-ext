@@ -97,6 +97,7 @@ node tests/test_onboth_gating.js
 node tests/test_parse_num.js
 node tests/test_import_payload_guard.js
 node tests/test_import_response_branches.js
+node tests/test_annulla_pricing.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
@@ -147,7 +148,7 @@ rimettere un `setTimeout` fisso.
   interruttore spento invece vale la scrittura vista, come prima). Spento = solo quiete
   dall'ultima scrittura, comportamento di prima della 1.2.1.
 
-### Interruttori di rollback (v1.2.1)
+### Interruttori di rollback (v1.2.1, v1.2.2)
 
 In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso**. Servono a
 tornare al comportamento precedente dalle Opzioni, senza una nuova release (lo storage dei PC
@@ -158,6 +159,7 @@ non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (va
 |---|---|---|
 | `importAttendeInVolo` | #47 (Pricing + Import aspetta i salvataggi in volo) | solo quiete di `bothSettleMs` dall'ultima scrittura |
 | `quoteOpenSoloOk` | #49 (preventivo aperto segnato solo su find 2xx) | preventivo aperto segnato all'invio della find, anche se poi fallisce |
+| `regBSottoCosto` | #34 (listino non sopra l'acquisto → Regola B) | Regola A col listino com'è: sconto 0 e vendita = listino, sotto costo |
 
 `injected.js` (mondo MAIN) non legge `chrome.storage`: posta sempre entrambi i segnali
 (`AR_QUOTE_OPEN` su 2xx e `AR_QUOTE_OPEN_INTENT` all'invio, `AR_QUOTE_SAVES`) e decide chi li
@@ -215,6 +217,22 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   soglia, punti e righe toccate.
 - Test: `node tests/test_fascia_recupero.js` (regola, sweep, scelta del preventivo,
   ogni ramo della risposta) e i casi `find/<id>` di `tests/test_injected_confirm.js`.
+
+### Listino sotto l'acquisto e esito delle riscritture (#34)
+
+- **Listino non sopra l'acquisto.** Con `listino <= acquisto` (listino anagrafico vecchio o
+  basso) la Regola A darebbe sconto 0 e vendita = listino, sotto costo: `calcolaRiga` tratta la
+  riga come senza listino (**Regola B**, listino fittizio). Interruttore `regBSottoCosto`, letto
+  a ogni pricing.
+- **Rollback del listino.** Se il listino non si scrive, sconto e vendita non si toccano
+  (`skipReasons.setFailed`); se lo sconto non si scrive dopo il listino, il listino torna al
+  valore di prima (`rollbackB`). Se anche quella riscrittura fallisce la riga finisce in
+  `skipReasons.rollbackFallito` («Listino NON ripristinato, controlla la riga» nel toast), entra
+  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa.
+- **ANNULLA.** Una riga conta come ripristinata solo se **tutti** i suoi campi ancora in pagina
+  sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
+  Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA
+  resta attivo per riprovare) e il toast è rosso con il conteggio.
 
 ### setVueInput (in `pricing.content.js`)
 
