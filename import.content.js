@@ -1,9 +1,9 @@
-// import.content.js — AR AUTO — Qricambi v1.2.2 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.2.3 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.2.2]";
+  const TAG = "[QUOTE-IMPORT v1.2.3]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────

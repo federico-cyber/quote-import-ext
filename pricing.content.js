@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.2]';
+  const TAG = '[AR-PRICING v1.2.3]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -881,9 +881,14 @@
         td.style.cssText = 'font-family: monospace !important; font-size: 10px !important; font-weight: bold !important; text-align: right !important; color: #fff !important; padding: 0 4px !important; width: 40px !important; min-width: 40px !important; max-width: 40px !important; white-space: nowrap !important;';
         td.textContent = '-';
         
+        // Posizione logica del th UTILE nella riga: thIndex + offset, con offset = celle del
+        // body senza <th> (bottone X, stesso offset di mappaColonne) calcolato per riga.
+        // Righe piu' corte del thead (colspan, "nessun dato") restano in coda.
         const tds = Array.from(tr.children);
-        if (thIndex >= 0 && thIndex < tds.length) {
-          tr.insertBefore(td, tds[thIndex]);
+        const offset = tds.length - (currentThs.length - 1);
+        const tdIndex = thIndex + offset;
+        if (thIndex >= 0 && offset >= 0 && tdIndex < tds.length) {
+          tr.insertBefore(td, tds[tdIndex]);
         } else {
           tr.appendChild(td);
         }

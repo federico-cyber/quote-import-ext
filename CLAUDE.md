@@ -98,6 +98,7 @@ node tests/test_parse_num.js
 node tests/test_import_payload_guard.js
 node tests/test_import_response_branches.js
 node tests/test_annulla_pricing.js
+node tests/test_utile_colonna.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
