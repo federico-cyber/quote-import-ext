@@ -219,17 +219,18 @@ Verifica di sola lettura possibile dopo un aggiornamento manuale:
 ## Test
 
 ```
-node tests/test_injected_confirm.js        # 17 passed, 0 failed
+node tests/test_injected_confirm.js        # N passed, 0 failed
 node tests/test_calcola_riga.js            # tutti i test ok
 node tests/test_fascia_recupero.js         # tutti i test ok
 node tests/test_import_fallback.js         # tutti i test ok
-node tests/test_fab_shortcut.js            # 17 passed, 0 failed
-node tests/test_onboth_gating.js           # 15 passed, 0 failed
+node tests/test_fab_shortcut.js            # N passed, 0 failed
+node tests/test_onboth_gating.js           # N passed, 0 failed
 node tests/test_parse_num.js               # tutti i test ok
-node tests/test_import_payload_guard.js    # 14 passed, 0 failed
+node tests/test_import_payload_guard.js    # N passed, 0 failed
 node tests/test_import_response_branches.js # tutti i test ok
+node tests/test_annulla_pricing.js         # tutti i test ok
 ```
-Atteso: exit 0 per tutti e nove, con l'ultima riga indicata nel commento. Nessuna CI:
+Atteso: exit 0 per tutti e dieci, con l'ultima riga indicata nel commento. Nessuna CI:
 la suite è l'insieme dei file `tests/*.js`, e un file nuovo va aggiunto qui e in
 CLAUDE.md §Test. Per controllare che l'elenco sia completo: `ls tests/*.js`.
 
