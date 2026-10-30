@@ -230,8 +230,9 @@ node tests/test_import_payload_guard.js    # N passed, 0 failed
 node tests/test_import_response_branches.js # tutti i test ok
 node tests/test_annulla_pricing.js         # tutti i test ok
 node tests/test_utile_colonna.js           # # pass 4, # fail 0
+node tests/test_vendita_senza_input.js     # tutti i test ok
 ```
-Atteso: exit 0 per tutti e undici, con l'ultima riga indicata nel commento. Nessuna CI:
+Atteso: exit 0 per tutti, con l'ultima riga indicata nel commento. Nessuna CI:
 la suite è l'insieme dei file `tests/*.js`, e un file nuovo va aggiunto qui e in
 CLAUDE.md §Test. Per controllare che l'elenco sia completo: `ls tests/*.js`.
 

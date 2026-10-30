@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.3]';
+  const TAG = '[AR-PRICING v1.2.4]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -669,6 +669,7 @@
           toastFascia(fascia, 0) +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
+          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -689,6 +690,7 @@
           (rC ? toastLine('o', 'Regola C', rC) : '') +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
+          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -808,7 +810,7 @@
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
     const col = mappaColonne(table);
-    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
+    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
 
     // Inietta colonna Utile se non esiste
     injectUtileColumn(table, col);
@@ -1076,7 +1078,7 @@
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
@@ -1104,8 +1106,16 @@
         continue;
       }
 
-      // v1.1.4: cattura i valori ORIGINALI prima di qualsiasi scrittura (per ANNULLA)
+      // #56: colonna Vendita mappata ma cella senza casella: la riga non si scrive
+      // (la vendita non si puo' impostare, l'utile sarebbe calcolato su un prezzo mai
+      // scritto) ed e' saltata. Il controllo sta prima di qualsiasi setVueInput.
       const venditaInp = (col.vendita != null) ? inputDiCella(tds[col.vendita]) : null;
+      if (col.vendita != null && !venditaInp) {
+        skip++; skipReasons.noVenditaInp++;
+        continue;
+      }
+
+      // v1.1.4: cattura i valori ORIGINALI prima di qualsiasi scrittura (per ANNULLA)
       const snapFields = [{ input: scontoInp, orig: scontoInp.value }];
       if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
       if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });

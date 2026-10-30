@@ -99,6 +99,7 @@ node tests/test_import_payload_guard.js
 node tests/test_import_response_branches.js
 node tests/test_annulla_pricing.js
 node tests/test_utile_colonna.js
+node tests/test_vendita_senza_input.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
@@ -234,6 +235,13 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
   Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA
   resta attivo per riprovare) e il toast è rosso con il conteggio.
+
+### Riga con Vendita mappata ma senza casella (#56)
+
+Se la colonna Vendita è mappata ma la cella non ha una casella, la riga non si scrive:
+è contata «saltata» con il motivo `noVenditaInp` («Campo vendita assente» nel toast),
+prima di qualsiasi scrittura su listino/sconto (decisione di Fede 24/10/2026). Con Vendita
+non mappata la riga si prezza come prima. Test: `tests/test_vendita_senza_input.js`.
 
 ### setVueInput (in `pricing.content.js`)
 
