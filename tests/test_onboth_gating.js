@@ -55,9 +55,10 @@ function makeClock() {
 }
 
 // ── Sandbox: DOM minimo + chrome.storage.onChanged finto ─────────────────
-function makeSandbox({ onPricing, onImport }) {
+function makeSandbox({ onPricing, onImport, storage = {} }) {
   const clock = makeClock();
   const listeners = new Set();
+  const msgListeners = new Set();
   const alerts = [];
 
   const el = () => ({
@@ -73,6 +74,8 @@ function makeSandbox({ onPricing, onImport }) {
   };
   const chrome = {
     storage: {
+      // get(defaults, cb): chiavi di `storage` (interruttori dalle Opzioni) sopra i default
+      local: { get: (defs, cb) => cb({ ...defs, ...storage }) },
       onChanged: {
         addListener: (fn) => listeners.add(fn),
         removeListener: (fn) => listeners.delete(fn),
@@ -80,7 +83,11 @@ function makeSandbox({ onPricing, onImport }) {
     },
   };
   class MutationObserver { observe() {} }
-  const win = { __AR_QRICAMBI: { onPricing, onImport } };
+  const win = {
+    __AR_QRICAMBI: { onPricing, onImport },
+    addEventListener: (t, fn) => { if (t === 'message') msgListeners.add(fn); },
+    removeEventListener: (t, fn) => { if (t === 'message') msgListeners.delete(fn); },
+  };
   const cons = { log() {}, warn() {}, error() {} };
 
   // eslint-disable-next-line no-new-func
@@ -93,10 +100,16 @@ function makeSandbox({ onPricing, onImport }) {
   const writePatch = (key = 'lastPatchPayload', area = 'local') => {
     for (const fn of [...listeners]) fn({ [key]: { newValue: { ID: 1, items: [] } } }, area);
   };
-  return { win, clock, alerts, writePatch, listenerCount: () => listeners.size };
+  // Simula un postMessage di injected.js (MAIN): AR_QUOTE_SAVES con valori assoluti.
+  const saves = (inflight, sentSeq, confirmedSeq) => {
+    const data = { source: 'AR_QUOTE_SAVES', inflight, sentSeq, confirmedSeq };
+    for (const fn of [...msgListeners]) fn({ source: win, data });
+  };
+  return { win, clock, alerts, writePatch, saves,
+           listenerCount: () => listeners.size, msgListenerCount: () => msgListeners.size };
 }
 
-const GOOD = () => ({ tot: 3, ok: 3, skip: 0,
+const GOOD = () => ({ tot: 3, ok: 3, skip: 0, cambiate: 3,
   skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [],
   fascia: { stato: 'normale', righeRecupero: 0 } });
 
@@ -280,12 +293,186 @@ test('onBoth senza scrittura entro il timeout non importa e avvisa', async () =>
   assert.strictEqual(s.clock.pending(), 0, 'timer residui dopo il timeout');
 });
 
+// ── 7. Nessuna modifica (#46): avviso SUBITO, niente import ───────────────
+// Preventivo gia' prezzato: il pricing non cambia nessuna riga, Qricambi non manda
+// PATCH. `cambiate` (righe davvero cambiate) = 0 -> messaggio subito, non dopo
+// bothWaitMs, e nessun import anche se in storage c'e' un lastPatchPayload.
+test('#46 onBoth con cambiate=0: avviso subito (senza attendere bothWaitMs) e niente import', async () => {
+  let imports = 0;
+  const s = makeSandbox({
+    onPricing: async () => ({ ...GOOD(), cambiate: 0 }),
+    onImport: async () => { imports++; },
+  });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush(); // nessun avanzamento del tempo: l'avviso deve essere gia' qui
+  assert.strictEqual(s.alerts.length, 1, 'avviso assente (o in attesa del timeout)');
+  await p;
+  assert.strictEqual(imports, 0, 'import eseguito con zero righe cambiate');
+  assert.ok(/nessuna modifica/i.test(s.alerts[0]), s.alerts[0]);
+  assert.ok(/Importa in SIRJ/.test(s.alerts[0]), s.alerts[0]);
+  assert.ok(!/non ha confermato il salvataggio/.test(s.alerts[0]), 'messaggio del timeout');
+  assert.strictEqual(s.listenerCount(), 0, 'listener onChanged non rimosso');
+  assert.strictEqual(s.clock.pending(), 0, 'timer residui');
+});
+
+test('#46 cambiate=0: nemmeno con un lastPatchPayload scritto prima si importa', async () => {
+  let imports = 0, s;
+  s = makeSandbox({
+    onPricing: async () => { s.writePatch(); return { ...GOOD(), cambiate: 0 }; },
+    onImport: async () => { imports++; },
+  });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await s.clock.advance(DEFAULTS.bothWaitMs + 5000);
+  await p;
+  assert.strictEqual(imports, 0);
+  assert.strictEqual(s.alerts.length, 1);
+});
+
+test('#46 cambiate>0 senza PATCH: nessun avviso "nessuna modifica", resta l\'attesa del salvataggio', async () => {
+  let imports = 0;
+  const s = makeSandbox({
+    onPricing: async () => ({ ...GOOD(), cambiate: 1 }),
+    onImport: async () => { imports++; },
+  });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush();
+  assert.strictEqual(s.alerts.length, 0, 'avviso prematuro con righe cambiate');
+  await s.clock.advance(DEFAULTS.bothWaitMs);
+  await p;
+  assert.strictEqual(imports, 0);
+  assert.ok(/non ha confermato il salvataggio/.test(s.alerts[0]), s.alerts[0]);
+});
+
+test('#46 conteggio assente (esito vecchio): non si deduce "niente cambiato", si attende come prima', async () => {
+  let imports = 0;
+  const res = GOOD(); delete res.cambiate;
+  const s = makeSandbox({ onPricing: async () => res, onImport: async () => { imports++; } });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush();
+  s.writePatch();
+  await s.clock.advance(DEFAULTS.bothSettleMs);
+  await p;
+  assert.strictEqual(imports, 1);
+  assert.strictEqual(s.alerts.length, 0);
+});
+
+// ── 8. Salvataggi in volo (#47, interruttore importAttendeInVolo) ──────────
+// Scenario del bug: PATCH1 confermata e scritta, PATCH2 inviata subito dopo ma lenta.
+// La quiete di 600 ms dalla scrittura di PATCH1 scade con PATCH2 ancora in volo:
+// senza il conteggio si importa con prezzi misti.
+async function scenarioPatchLenta(opts) {
+  let imports = 0;
+  const s = makeSandbox({
+    onPricing: async () => GOOD(), onImport: async () => { imports++; }, ...opts,
+  });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush();
+  s.saves(1, 100, 0);          // PATCH1 inviata
+  s.saves(0, 100, 100);        // PATCH1 confermata...
+  s.writePatch();              // ...e scritta in storage
+  s.saves(1, 200, 100);        // PATCH2 inviata subito dopo (lenta)
+  return { s, p, imports: () => imports };
+}
+
+test('#47 con PATCH2 in volo la quiete di 600 ms NON basta: nessun import', async () => {
+  const { s, p, imports } = await scenarioPatchLenta();
+  await s.clock.advance(DEFAULTS.bothSettleMs + 3000); // PATCH2 lenta: 3,6 s
+  assert.strictEqual(imports(), 0, 'import con un salvataggio ancora in volo (prezzi misti)');
+  s.saves(0, 200, 200);        // PATCH2 confermata
+  s.writePatch();
+  await s.clock.advance(DEFAULTS.bothSettleMs - 1);
+  assert.strictEqual(imports(), 0, 'import prima della quiete a zero in volo');
+  await s.clock.advance(1);
+  await p;
+  assert.strictEqual(imports(), 1, 'import non partito a zero in volo');
+  assert.strictEqual(s.alerts.length, 0);
+  assert.strictEqual(s.listenerCount(), 0);
+  assert.strictEqual(s.msgListenerCount(), 0, 'listener message non rimosso');
+  assert.strictEqual(s.clock.pending(), 0);
+});
+
+test('#47 in volo che non scende mai: allo scadere di bothWaitMs alert e MAI import', async () => {
+  const { s, p, imports } = await scenarioPatchLenta();
+  await s.clock.advance(DEFAULTS.bothWaitMs - 1);
+  assert.strictEqual(s.alerts.length, 0, 'avviso prima del timeout');
+  await s.clock.advance(1);
+  await p;
+  assert.strictEqual(imports(), 0, 'import allo scadere con un salvataggio in volo');
+  assert.strictEqual(s.alerts.length, 1);
+  assert.ok(/ancora salvando/.test(s.alerts[0]), s.alerts[0]);
+  assert.strictEqual(s.clock.pending(), 0);
+  assert.strictEqual(s.msgListenerCount(), 0);
+});
+
+test('#47 PATCH2 rifiutata (ultima inviata non confermata): niente import, avviso chiaro', async () => {
+  const { s, p, imports } = await scenarioPatchLenta();
+  s.saves(0, 200, 100);        // PATCH2 conclusa con errore: confermata resta la 1
+  await s.clock.advance(DEFAULTS.bothSettleMs);
+  await p;
+  assert.strictEqual(imports(), 0, 'import con ultimo salvataggio rifiutato');
+  assert.strictEqual(s.alerts.length, 1);
+  assert.ok(/rifiutato/.test(s.alerts[0]), s.alerts[0]);
+});
+
+test('#47 un nuovo salvataggio durante la quiete la azzera (nessun import anticipato)', async () => {
+  let imports = 0;
+  const s = makeSandbox({ onPricing: async () => GOOD(), onImport: async () => { imports++; } });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush();
+  s.saves(0, 100, 100); s.writePatch();
+  await s.clock.advance(DEFAULTS.bothSettleMs - 100);
+  s.saves(1, 200, 100);                    // parte PATCH2 a 500 ms dalla quiete
+  await s.clock.advance(1000);
+  assert.strictEqual(imports, 0);
+  s.saves(0, 200, 200); s.writePatch();
+  await s.clock.advance(DEFAULTS.bothSettleMs);
+  await p;
+  assert.strictEqual(imports, 1);
+});
+
+test('#47 interruttore SPENTO: comportamento di prima (quiete dalla scrittura, anche con PATCH in volo), nessun listener message', async () => {
+  const { s, p, imports } = await scenarioPatchLenta({ storage: { importAttendeInVolo: false } });
+  assert.strictEqual(s.msgListenerCount(), 0, 'listener message registrato a interruttore spento');
+  await s.clock.advance(DEFAULTS.bothSettleMs);
+  await p;
+  assert.strictEqual(imports(), 1, 'a interruttore spento deve valere la sola quiete di prima');
+  assert.strictEqual(s.alerts.length, 0);
+});
+
+test('#47 interruttore SPENTO: al timeout vale la scrittura gia vista (come prima)', async () => {
+  let imports = 0;
+  const s = makeSandbox({
+    onPricing: async () => GOOD(), onImport: async () => { imports++; },
+    storage: { importAttendeInVolo: false },
+  });
+  const p = s.win.__AR_QRICAMBI.onBoth();
+  await flush();
+  s.writePatch();
+  s.saves(1, 100, 0); // un salvataggio in volo non si vede, a interruttore spento
+  // quiete sempre rinnovata (scritture ogni 500 ms) fino al timeout: si arriva a bothWaitMs
+  for (let t = 0; t < DEFAULTS.bothWaitMs; t += 500) { s.writePatch(); await s.clock.advance(500); }
+  await p;
+  assert.strictEqual(imports, 1, 'al timeout a interruttore spento deve valere la scrittura vista');
+});
+
+test('#47 default: importAttendeInVolo e quoteOpenSoloOk sono true in defaults.js', async () => {
+  assert.strictEqual(DEFAULTS.importAttendeInVolo, true);
+  assert.strictEqual(DEFAULTS.quoteOpenSoloOk, true);
+});
+
 (async () => {
   let failed = 0;
+  let finished = false;
+  // Una promise mai risolta (attesa che nessun timer finto sblocca) farebbe uscire
+  // node con codice 0 senza riepilogo: lo si segnala come fallimento.
+  process.on('exit', () => {
+    if (!finished) { console.log('FAIL - run interrotto: un test e rimasto in attesa'); process.exitCode = 1; }
+  });
   for (const [name, fn] of cases) {
     try { await fn(); console.log('ok   -', name); }
     catch (e) { failed++; console.log('FAIL -', name, '\n      ', e.message); }
   }
+  finished = true;
   console.log(`\n${cases.length - failed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

@@ -34,6 +34,9 @@
     input[type="number"] { width: 100px; }
     input[type="text"], input[type="password"] { width: 100%; }
     input:focus { outline: none; border-color: var(--accent); }
+    .check-row { display: flex; align-items: center; gap: 10px; }
+    .check-row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+    .check-row label { color: var(--text); }
     .description { font-size: 12px; color: var(--muted); line-height: 1.5; }
     .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 32px; }
     button { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
@@ -51,7 +54,7 @@
   <div class="container">
     <header>
       <h1>AR <span>AUTO</span> — QRICAMBI</h1>
-      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.0</p>
+      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.1</p>
     </header>
 
     <div class="section">
@@ -114,6 +117,18 @@
       <div class="form-group"><label for="fallbackCliforNumero">CLIFOR fallback (cliente fittizio)</label>
         <div class="input-row"><input type="number" id="fallbackCliforNumero" value="5" min="0" step="1">
         <span class="description">Numero clifor SIRJ usato come <b>cliente generico</b> quando il matching automatico non trova il cliente e l'override è 0. Default: 5.</span></div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Correzioni (rollback)</div>
+      <div class="form-group">
+        <div class="check-row"><input type="checkbox" id="importAttendeInVolo">
+        <label for="importAttendeInVolo">Pricing + Import: attendi i salvataggi in corso</label></div>
+        <span class="description">Acceso: l'import parte solo quando Qricambi ha finito di salvare tutte le righe e l'ultimo salvataggio e' confermato. Spento: basta una breve pausa dall'ultima scrittura (comportamento precedente). Vale dal prossimo Pricing + Import.</span></div>
+      <div class="form-group">
+        <div class="check-row"><input type="checkbox" id="quoteOpenSoloOk">
+        <label for="quoteOpenSoloOk">Preventivo aperto: conta solo se Qricambi risponde bene</label></div>
+        <span class="description">Acceso: il preventivo aperto si segna solo se la sua lettura va a buon fine (evita avvisi «ATTENZIONE» falsi all'import). Spento: lo si segna appena la pagina lo chiede (comportamento precedente). Ricarica Qricambi dopo averlo cambiato.</span></div>
     </div>
 
     <div class="actions">

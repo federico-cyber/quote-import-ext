@@ -59,10 +59,11 @@ function fakeEl() {
 // ── harness di import.content.js ────────────────────────────────────────
 function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), storedSeq = 0,
                          responses = [{ status: 200, body: { sirj_numero: 1, sirj_anno: 2026 } }],
-                         confirms = [true, true] } = {}) {
+                         confirms = [true, true], extraStore = {} } = {}) {
   const store = {
     importHistory: [], fallbackCliforNumero: 5,
     apiKey: 'k', backendUrl: 'http://bridge.invalid/import', overrideCliforNumero: 0,
+    ...extraStore,
   };
   if (stored) { store.lastPatchPayload = stored; store.lastPatchSeq = storedSeq; }
   const sent = [];
@@ -184,6 +185,57 @@ test('PATCH confermata di B dopo l apertura di A: B e il preventivo aperto, nien
   await e.click();
   assert.strictEqual(e.confirmTexts.length, 1, 'conferma di mismatch spuria dopo salvataggio di B');
   assert.strictEqual(e.sent[0].ID, B);
+});
+
+// ── #49: AR_QUOTE_OPEN (solo 2xx) vs AR_QUOTE_OPEN_INTENT (all'invio) ────
+// Interruttore quoteOpenSoloOk (default acceso): acceso vale solo AR_QUOTE_OPEN;
+// spento vale solo l'intento all'invio, come prima della 1.2.1.
+test('#49 acceso (default): l intento all invio NON segna il preventivo aperto', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote' });
+  e.post({ source: 'AR_QUOTE_OPEN_INTENT', id: B }); // find/B partita ma mai riuscita
+  await e.click();
+  assert.strictEqual(e.confirmTexts.length, 1, 'conferma di mismatch falsa da una find non riuscita');
+  assert.strictEqual(e.sent.length, 1);
+});
+
+test('#49 acceso: AR_QUOTE_OPEN (find 2xx) segna il preventivo aperto: mismatch', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote', confirms: [false] });
+  e.post({ source: 'AR_QUOTE_OPEN_INTENT', id: A });
+  e.post({ source: 'AR_QUOTE_OPEN', id: B });
+  await e.click();
+  assert.strictEqual(e.sent.length, 0);
+  assert.ok(e.confirmTexts[0].includes(String(B)), e.confirmTexts[0]);
+});
+
+test('#49 spento: vale l intento all invio (come prima), AR_QUOTE_OPEN e ignorato', async () => {
+  const off = { quoteOpenSoloOk: false };
+  const a = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote', confirms: [false], extraStore: off });
+  a.post({ source: 'AR_QUOTE_OPEN_INTENT', id: B });
+  await a.click();
+  assert.strictEqual(a.sent.length, 0, 'interruttore spento: la find all invio deve segnare B come aperto');
+  assert.ok(a.confirmTexts[0].includes(String(B)), a.confirmTexts[0]);
+  const b = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote', extraStore: off });
+  b.post({ source: 'AR_QUOTE_OPEN', id: B });
+  await b.click();
+  assert.strictEqual(b.confirmTexts.length, 1, 'AR_QUOTE_OPEN non va doppiato a interruttore spento');
+});
+
+test('#49 find sovrapposte: un AR_QUOTE_OPEN piu vecchio (seq minore) arrivato dopo non vince', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote', confirms: [false] });
+  e.post({ source: 'AR_QUOTE_OPEN', id: B, seq: 2 }); // find/B inviata dopo, risposta prima
+  e.post({ source: 'AR_QUOTE_OPEN', id: A, seq: 1 }); // find/A, risposta in ritardo
+  await e.click(); // payload di A
+  assert.strictEqual(e.sent.length, 0, 'la risposta in ritardo di find/A ha sovrascritto B');
+  assert.ok(e.confirmTexts[0].includes(String(B)), e.confirmTexts[0]);
+});
+
+test('#49 find in sequenza: il seq maggiore aggiorna il preventivo aperto', async () => {
+  const e = makeImportEnv({ href: 'https://app.qricambi.com/?activetab=quote' });
+  e.post({ source: 'AR_QUOTE_OPEN', id: B, seq: 1 });
+  e.post({ source: 'AR_QUOTE_OPEN', id: A, seq: 2 });
+  await e.click(); // payload di A, A aperto: solo la conferma dell import
+  assert.strictEqual(e.confirmTexts.length, 1, 'conferma di mismatch spuria');
+  assert.strictEqual(e.sent.length, 1);
 });
 
 // ── 2. risposte fuori ordine ────────────────────────────────────────────

@@ -23,8 +23,8 @@ const end = SRC.indexOf('// ── fine calcolaRiga');
 assert.ok(start > 0 && end > start, 'blocco calcolaRiga non trovato in pricing.content.js');
 
 const ctx = {};
-vm.runInNewContext(SRC.slice(start, end) + '\nthis.calcolaRiga = calcolaRiga;', ctx);
-const { calcolaRiga } = ctx;
+vm.runInNewContext(SRC.slice(start, end) + '\nthis.calcolaRiga = calcolaRiga; this.rigaCambiata = rigaCambiata;', ctx);
+const { calcolaRiga, rigaCambiata } = ctx;
 
 // Stessi valori di defaults.js
 const DEF = {
@@ -164,6 +164,24 @@ test('#24 config non intera (step 1, cap 71, B 33) → vendita al centesimo, rit
   const b = calcolaRiga(7, 0, S);
   assertScontoIntero(b, 'B');
   assertVenditaAlCentesimo(b, 0, 'B');
+});
+
+// ── rigaCambiata (#46): conta le righe che il pricing ha davvero modificato ──
+const campo = (value, orig) => ({ input: { value }, orig });
+test('#46 rigaCambiata: sconto/listino/vendita gia ai valori di arrivo -> false', () => {
+  assert.strictEqual(rigaCambiata([campo('55', '55'), campo('8.74', '8.74'), campo('3.93', '3.93')]), false);
+});
+test('#46 rigaCambiata: stesso valore scritto in altro formato (55 / 55.00, virgola) -> false', () => {
+  assert.strictEqual(rigaCambiata([campo('55', '55.00'), campo('8,74', '8.74')]), false);
+});
+test('#46 rigaCambiata: anche un solo campo diverso -> true', () => {
+  assert.strictEqual(rigaCambiata([campo('55', '55'), campo('45', '50')]), true);
+  assert.strictEqual(rigaCambiata([campo('8.80', '8.74')]), true);
+});
+test('#46 rigaCambiata: campo non numerico -> confronto testuale', () => {
+  assert.strictEqual(rigaCambiata([campo(' x ', 'x')]), false);
+  assert.strictEqual(rigaCambiata([campo('x', 'y')]), true);
+  assert.strictEqual(rigaCambiata([campo('', '12')]), true);
 });
 
 if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }
