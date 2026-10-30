@@ -1115,17 +1115,21 @@
       // listino è già stato scritto, rollback.
       const scriviListino = listinoInp && (regola === 'B' || listinoFin !== listino);
       const listinoOrigValue = listinoInp ? listinoInp.value : null;
-      if (scriviListino) await setVueInput(listinoInp, listinoFin.toFixed(2));
-
-      successo = await setVueInput(scontoInp, scontoCliente);
+      // #34: se il listino non si scrive, sconto e vendita non si toccano (con
+      // lo sconto della Regola B su un listino vecchio si venderebbe sotto costo).
+      const listinoScritto = !scriviListino || await setVueInput(listinoInp, listinoFin.toFixed(2));
+      successo = listinoScritto && await setVueInput(scontoInp, scontoCliente);
       if (!successo && scriviListino && listinoOrigValue !== null) {
-        console.warn(TAG, `Regola ${regola} riga ${ri}: sconto fallito, rollback listino`);
+        console.warn(TAG, `Regola ${regola} riga ${ri}: ${listinoScritto ? 'sconto' : 'listino'} fallito, rollback listino`);
         if (await setVueInput(listinoInp, listinoOrigValue)) {
-          skip++; skipReasons.rollbackB++;
+          skip++;
+          if (listinoScritto) skipReasons.rollbackB++; else skipReasons.setFailed++;
         } else {
-          // #34: listino rimasto al valore nuovo, con lo sconto vecchio
+          // #34: listino rimasto a un valore diverso dall'originale. La riga
+          // entra nello snapshot: ANNULLA la puo' riprovare.
           console.error(TAG, `Riga ${ri}: rollback listino a ${listinoOrigValue} NON riuscito`);
           skip++; skipReasons.rollbackFallito++;
+          lastSnapshot.entries.push({ tr, fields: snapFields });
         }
         continue;
       }
@@ -1184,6 +1188,14 @@
   // Riscrive i valori originali catturati in lastSnapshot riusando setVueInput.
   // I listener live restano sospesi (undoInProgress) per tutta la durata, così
   // non ricalcolano Utile/colori sui valori intermedi; reset visivo esplicito.
+  // Campo vuoto prima del pricing (riga senza listino) che Qricambi ripresenta
+  // come 0: setVueInput lo da' per diverso, ma il valore e' tornato.
+  function ripristinoVuoto(f) {
+    if (String(f.orig == null ? '' : f.orig).trim() !== '') return false;
+    const v = String(f.input.value == null ? '' : f.input.value).trim();
+    return v === '' || parseFloat(v.replace(',', '.')) === 0;
+  }
+
   async function annullaPricing() {
     if (!lastSnapshot || !lastSnapshot.entries.length) {
       return { restored: 0, skipped: 0, failed: 0 };
@@ -1198,7 +1210,7 @@
         for (const f of entry.fields) {
           if (f.input && f.input.isConnected) {
             presenti++;
-            if (!await setVueInput(f.input, f.orig)) falliti++;
+            if (!await setVueInput(f.input, f.orig) && !ripristinoVuoto(f)) falliti++;
           }
         }
         if (falliti) {

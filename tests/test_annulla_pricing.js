@@ -4,7 +4,7 @@
  * stati riscritti tutti (setVueInput === true). Una riga fallita resta nello
  * snapshot, cosi' ANNULLA si puo' ripetere.
  *
- * Estrae il blocco fra "async function annullaPricing" e "// onUndo: cablato"
+ * Estrae il blocco fra "function ripristinoVuoto" e "// onUndo: cablato"
  * e lo esegue in vm con setVueInput finto. Node puro, exit code 1 se fallisce.
  *   node tests/test_annulla_pricing.js
  */
@@ -16,7 +16,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
-const start = SRC.indexOf('async function annullaPricing');
+const start = SRC.indexOf('function ripristinoVuoto');
 const end = SRC.indexOf('// onUndo: cablato');
 assert.ok(start > 0 && end > start, 'annullaPricing non trovata in pricing.content.js');
 
@@ -84,6 +84,24 @@ async function test(name, fn) {
     e.setSnap({ entries: [riga('a', 2, false)] });
     const r = await e.annulla();
     assert.deepStrictEqual({ ...r }, { restored: 0, skipped: 1, failed: 0 });
+  });
+
+  await test('#34 campo vuoto prima del pricing riletto come 0: ripristinato', async () => {
+    const e = makeEnv((inp) => { if (inp.nome === 'a1') { inp.value = '0'; return false; } return true; });
+    const a = riga('a');
+    a.fields[1].orig = '';
+    e.setSnap({ entries: [a] });
+    const r = await e.annulla();
+    assert.deepStrictEqual({ ...r }, { restored: 1, skipped: 0, failed: 0 });
+  });
+
+  await test('#34 campo vuoto prima del pricing rimasto a un numero: fallito', async () => {
+    const e = makeEnv((inp) => { if (inp.nome === 'a1') { inp.value = '240.00'; return false; } return true; });
+    const a = riga('a');
+    a.fields[1].orig = '';
+    e.setSnap({ entries: [a] });
+    const r = await e.annulla();
+    assert.strictEqual(r.failed, 1);
   });
 
   if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }

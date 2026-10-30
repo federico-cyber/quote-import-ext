@@ -224,11 +224,14 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   basso) la Regola A darebbe sconto 0 e vendita = listino, sotto costo: `calcolaRiga` tratta la
   riga come senza listino (**Regola B**, listino fittizio). Interruttore `regBSottoCosto`, letto
   a ogni pricing.
-- **Rollback del listino.** Se lo sconto non si scrive dopo il listino, il listino torna al valore
-  di prima; se anche quella riscrittura fallisce la riga finisce in `skipReasons.rollbackFallito`
-  («Listino NON ripristinato, controlla la riga» nel toast) e Pricing + Import non importa.
+- **Rollback del listino.** Se il listino non si scrive, sconto e vendita non si toccano
+  (`skipReasons.setFailed`); se lo sconto non si scrive dopo il listino, il listino torna al
+  valore di prima (`rollbackB`). Se anche quella riscrittura fallisce la riga finisce in
+  `skipReasons.rollbackFallito` («Listino NON ripristinato, controlla la riga» nel toast), entra
+  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa.
 - **ANNULLA.** Una riga conta come ripristinata solo se **tutti** i suoi campi ancora in pagina
-  sono stati riscritti (`setVueInput === true`); le righe fallite restano nello snapshot (ANNULLA
+  sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
+  Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA
   resta attivo per riprovare) e il toast è rosso con il conteggio.
 
 ### setVueInput (in `pricing.content.js`)
