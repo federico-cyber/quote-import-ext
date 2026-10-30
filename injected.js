@@ -6,7 +6,7 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.2.2]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.3]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
