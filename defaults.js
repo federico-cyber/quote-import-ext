@@ -1,7 +1,7 @@
 // defaults.js — single source of truth per l'estensione unificata "AR AUTO — Qricambi".
 // Caricato prima di fab.js / pricing.content.js / import.content.js (content scripts)
 // e di options.js / popup.js (pagine estensione).
-// Version: 1.2.0
+// Version: 1.2.1
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,
@@ -31,6 +31,16 @@ const DEFAULTS = {
   // bothSettleMs = quiete richiesta dall'ultima scrittura (PATCH ravvicinate).
   bothWaitMs: 15000,
   bothSettleMs: 600,
+  // Interruttori di rollback (v1.2.1): spenti dalle Opzioni = comportamento di prima,
+  // senza nuova release. importAttendeInVolo si legge a ogni Pricing + Import;
+  // quoteOpenSoloOk al caricamento della pagina Qricambi (poi ricaricarla).
+  // #47: Pricing + Import importa solo a zero salvataggi in volo (oltre alla quiete
+  // di bothSettleMs) e mai se l'ultimo salvataggio non e' confermato. Spento: solo
+  // quiete dall'ultima scrittura, come prima.
+  importAttendeInVolo: true,
+  // #49: il preventivo "aperto" (mismatch all'import) si segna solo su una
+  // GET find/<id> riuscita (2xx). Spento: lo si segna all'invio, come prima.
+  quoteOpenSoloOk: true,
 };
 
 // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo

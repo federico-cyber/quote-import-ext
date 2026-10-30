@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.0]';
+  const TAG = '[AR-PRICING v1.2.1]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -699,7 +699,7 @@
     } catch (e) {
       console.error(TAG, 'Errore esecuzione pricing:', e);
       showToast(`<b>Errore</b><br><span class="m">${escHtml(e.message)}</span>`, 'error');
-      return { tot: 0, ok: 0, skip: 0, skipReasons: {}, dettagli: [], error: e.message };
+      return { tot: 0, ok: 0, skip: 0, skipReasons: {}, dettagli: [], cambiate: 0, error: e.message };
     } finally {
       // v1.1.4: ANNULLA disponibile solo se l'applicazione ha prodotto uno snapshot
       if (window.__AR_QRICAMBI.setUndoEnabled) {
@@ -806,7 +806,7 @@
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
     const col = mappaColonne(table);
-    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [] };
+    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
 
     // Inietta colonna Utile se non esiste
     injectUtileColumn(table, col);
@@ -1035,6 +1035,22 @@
     }
     return { stato: 'errore', motivo: status ? `server ${status}` : 'server non raggiungibile' };
   }
+
+  // quote-import-ext#46: una riga e' "cambiata" se il pricing ne ha davvero
+  // modificato almeno un campo (sconto, listino, vendita): valore finale
+  // dell'input diverso da quello catturato PRIMA delle scritture. setVueInput
+  // torna true anche quando il valore c'era gia': `ok` non dice quindi se qualcosa
+  // e' cambiato. Confronto numerico (mezzo centesimo), testuale se non numerico.
+  // fields: [{ input, orig }] (gli stessi di lastSnapshot).
+  function rigaCambiata(fields) {
+    const num = (v) => parseFloat(String(v).replace(',', '.'));
+    return fields.some(({ input, orig }) => {
+      const a = num(input.value), b = num(orig);
+      if (!isNaN(a) && !isNaN(b)) return Math.abs(a - b) >= 0.005;
+      return String(input.value).trim() !== String(orig).trim();
+    });
+  }
+
   // ── fine calcolaRiga ──
 
   async function eseguiConIndici(table, col, onProgress, recupero) {
@@ -1047,7 +1063,7 @@
     const allTr = Array.from(table.querySelectorAll('tbody tr'));
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
-    let ok = 0, skip = 0;
+    let ok = 0, skip = 0, cambiate = 0;
     const skipReasons = { noAcquisto: 0, noScontoInp: 0, rollbackB: 0, setFailed: 0 };
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
@@ -1141,6 +1157,7 @@
         }
 
         ok++;
+        if (rigaCambiata(snapFields)) cambiate++; // #46: scritta davvero, non gia' prezzata
         dettagli.push({ regola, utileTotale, ricaricoEffettivo, recuperoApplicato });
         lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
@@ -1148,7 +1165,7 @@
       }
     }
 
-    return { tot: ok + skip, ok, skip, skipReasons, dettagli };
+    return { tot: ok + skip, ok, skip, skipReasons, dettagli, cambiate };
   }
 
   // ── ANNULLA: ripristina l'ultima applicazione (v1.1.4) ────

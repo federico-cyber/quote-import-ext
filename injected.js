@@ -6,7 +6,7 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.2.0]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.1]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
@@ -59,16 +59,51 @@
   // (GET /api/Quote/find/<id>): serve a import.content.js per accorgersi che il
   // preventivo aperto non e' quello dell'ultimo payload confermato.
   // Ritorna l'id aperto (o null) perche' il chiamante ne legga poi la risposta.
+  //
+  // quote-import-ext#49: `AR_QUOTE_OPEN` parte SOLO su risposta 2xx
+  // (publishOpened), come `AR_QUOTE_CUSTOMER`: una find in 404/5xx non e' un
+  // preventivo aperto. All'invio parte invece `AR_QUOTE_OPEN_INTENT`, il segnale
+  // di prima: lo usa import.content.js solo con l'interruttore `quoteOpenSoloOk`
+  // spento (rollback dalle Opzioni senza nuova release; injected.js, nel mondo
+  // MAIN, non puo' leggere chrome.storage).
   function noteOpenedQuote(method, url) {
     try {
       if ((method || "").toUpperCase() !== "GET" || !url) return null;
       const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
       if (m) {
-        window.postMessage({ source: "AR_QUOTE_OPEN", id: m[1] }, "*");
+        window.postMessage({ source: "AR_QUOTE_OPEN_INTENT", id: m[1] }, "*");
         return m[1];
       }
     } catch (e) { /* no-op */ }
     return null;
+  }
+
+  function publishOpened(id) {
+    try {
+      window.postMessage({ source: "AR_QUOTE_OPEN", id }, "*");
+    } catch (e) { /* no-op */ }
+  }
+
+  // Salvataggi in volo (quote-import-ext#47). Ogni PATCH /api/Quote con payload
+  // valido e' "in volo" dall'invio alla fine: risposta (QUALSIASI status),
+  // abort, errore di rete o timeout. Il contatore scende SEMPRE (finally / eventi
+  // terminali dell'XHR): se restasse > 0 per sempre, Pricing + Import non
+  // importerebbe piu'. fab.js (ISOLATED) legge i valori ASSOLUTI da
+  // `AR_QUOTE_SAVES`, cosi' un messaggio perso non lo sfasa.
+  //  - sentSeq: seq dell'ultima PATCH inviata; confirmedSeq: il piu' alto seq
+  //    confermato 2xx. L'ultima PATCH inviata e' confermata se sentSeq == confirmedSeq.
+  let inflight = 0;
+  let confirmedSeq = 0;
+  function postSaves() {
+    try {
+      window.postMessage({ source: "AR_QUOTE_SAVES", inflight, sentSeq: lastSentSeq, confirmedSeq }, "*");
+    } catch (e) { /* no-op */ }
+  }
+  function saveStarted() { inflight++; postSaves(); }
+  function saveEnded(seq, ok) {
+    inflight = Math.max(0, inflight - 1);
+    if (ok) confirmedSeq = Math.max(confirmedSeq, seq);
+    postSaves();
   }
 
   // Cliente del preventivo aperto (arauto#4911): pricing.content.js lo manda al
@@ -116,6 +151,8 @@
     let pending = null;
     let seq = 0;
     let findId = null;
+    let counted = false;
+    let confirmed = false;
     try {
       const url = typeof resource === "string" ? resource : resource?.url;
       const method = (init?.method || "GET").toUpperCase();
@@ -124,22 +161,27 @@
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
       // ma il payload resta in sospeso finche' il server non risponde.
       pending = extractQuotePayload(method, url, init?.body);
-      if (pending) seq = nextSeq();
+      if (pending) { seq = nextSeq(); saveStarted(); counted = true; }
     } catch (e) { /* no-op */ }
-    // Se la fetch va in errore di rete, l'eccezione si propaga come prima e
-    // il payload non viene mai pubblicato.
-    const res = await origFetch.apply(this, args);
     try {
-      if (pending) {
-        if (res && res.ok) publishConfirmed(pending, seq);
-        else logRejected("fetch", res && res.status, pending);
-      }
-      // clone(): il body originale resta intatto per la pagina
-      if (findId && res && res.ok) {
-        res.clone().json().then((b) => publishCustomer(findId, b), () => {});
-      }
-    } catch (e) { /* no-op */ }
-    return res;
+      // Se la fetch va in errore di rete, l'eccezione si propaga come prima e
+      // il payload non viene mai pubblicato (il finally chiude il "in volo").
+      const res = await origFetch.apply(this, args);
+      try {
+        if (pending) {
+          if (res && res.ok) { publishConfirmed(pending, seq); confirmed = true; }
+          else logRejected("fetch", res && res.status, pending);
+        }
+        if (findId && res && res.ok) {
+          publishOpened(findId);
+          // clone(): il body originale resta intatto per la pagina
+          res.clone().json().then((b) => publishCustomer(findId, b), () => {});
+        }
+      } catch (e) { /* no-op */ }
+      return res;
+    } finally {
+      if (counted) saveEnded(seq, confirmed);
+    }
   };
 
   // ── XMLHttpRequest override ─────────────────────────────────────────
@@ -155,6 +197,7 @@
     };
     const origSend = xhr.send;
     xhr.send = function (body) {
+      let endSave = null; // chiude il "in volo" di questa PATCH (una volta sola)
       try {
         logTouch("xhr", _method, _url);
         const findId = noteOpenedQuote(_method, _url);
@@ -162,6 +205,7 @@
           xhr.addEventListener("load", function () {
             try {
               if (xhr.status < 200 || xhr.status >= 300) return;
+              publishOpened(findId);
               const rt = xhr.responseType;
               publishCustomer(findId, rt === "json" ? xhr.response
                                       : (!rt || rt === "text") ? xhr.responseText : null);
@@ -171,17 +215,36 @@
         const pending = extractQuotePayload(_method, _url, body);
         if (pending) {
           const seq = nextSeq();
-          // 'load' scatta solo a risposta ricevuta: su abort/errore di rete
-          // non scatta affatto e il payload non viene mai pubblicato.
+          saveStarted();
+          let ended = false;
+          endSave = function (ok) {
+            if (ended) return;
+            ended = true;
+            saveEnded(seq, ok);
+          };
+          // 'load' scatta solo a risposta ricevuta: su abort/errore di rete non
+          // scatta e il payload non viene mai pubblicato; il "in volo" scende
+          // comunque su abort / error / timeout / loadend.
           xhr.addEventListener("load", function () {
+            let ok = false;
             try {
-              if (xhr.status >= 200 && xhr.status < 300) publishConfirmed(pending, seq);
+              if (xhr.status >= 200 && xhr.status < 300) { publishConfirmed(pending, seq); ok = true; }
               else logRejected("xhr", xhr.status, pending);
             } catch (e) { /* no-op */ }
+            endSave(ok);
+          });
+          ["abort", "error", "timeout", "loadend"].forEach(function (t) {
+            xhr.addEventListener(t, function () { endSave(false); });
           });
         }
       } catch (e) { /* no-op */ }
-      return origSend.apply(this, arguments);
+      try {
+        return origSend.apply(this, arguments);
+      } catch (e) {
+        // send() puo' lanciare in modo sincrono: nessuna risposta arrivera' mai
+        if (endSave) endSave(false);
+        throw e;
+      }
     };
     return xhr;
   }

@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.2.0]';
+  const TAG = '[AR-QR-FAB v1.2.1]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
@@ -169,39 +169,108 @@
     return null;
   }
 
+  // quote-import-ext#46: il pricing ha girato su tutte le righe ma non ne ha
+  // cambiata nessuna (preventivo gia' prezzato). Qricambi non manda PATCH, quindi
+  // non c'e' nulla da aspettare: avviso SUBITO, senza attendere bothWaitMs e senza
+  // importare. Conta le righe davvero cambiate (`cambiate`, da pricing.content.js),
+  // NON l'assenza di PATCH. Se il conteggio manca (esito vecchio) vale `false`: si
+  // procede con l'attesa di sempre.
+  function bothNoChanges(res) {
+    return !!res && typeof res === 'object' && res.cambiate === 0;
+  }
+
   // Si arma PRIMA del pricing, cosi' una PATCH veloce non si perde.
-  function armPatchWatch() {
+  //
+  // inFlight (quote-import-ext#47, interruttore importAttendeInVolo): oltre alla
+  // scrittura di lastPatchPayload serve che injected.js non abbia salvataggi in volo
+  // (`AR_QUOTE_SAVES`, valori assoluti) e che l'ULTIMO salvataggio inviato sia
+  // confermato. La quiete parte dall'ultimo evento a zero in volo e si azzera se ne
+  // parte un altro: una PATCH lenta non puo' piu' farsi superare dal timer.
+  // Allo scadere di `timeoutMs` senza quiete NON si importa mai (anche con una
+  // scrittura gia' vista). Con inFlight spento resta la logica di prima.
+  // wait() risolve {ok, reason}.
+  function armPatchWatch(inFlight) {
     let changed = false;
     let onChange = null;
+    const saves = { inflight: 0, sentSeq: 0, confirmedSeq: 0 };
+    let onSaves = null;
     const listener = (changes, area) => {
       if (area !== 'local' || !changes || !changes.lastPatchPayload) return;
       if (!changes.lastPatchPayload.newValue) return;
       changed = true;
       if (onChange) onChange();
     };
+    const onMessage = (event) => {
+      if (event.source !== window) return;
+      const d = event.data;
+      if (!d || d.source !== 'AR_QUOTE_SAVES') return;
+      saves.inflight = Math.max(0, Number(d.inflight) || 0);
+      saves.sentSeq = Number(d.sentSeq) || 0;
+      saves.confirmedSeq = Number(d.confirmedSeq) || 0;
+      if (onSaves) onSaves();
+    };
     chrome.storage.onChanged.addListener(listener);
+    if (inFlight) window.addEventListener('message', onMessage);
     return {
-      dispose() { chrome.storage.onChanged.removeListener(listener); },
-      // true = scrittura vista e quiete raggiunta; false = nessuna scrittura entro il timeout.
+      dispose() {
+        chrome.storage.onChanged.removeListener(listener);
+        if (inFlight) window.removeEventListener('message', onMessage);
+      },
       wait(timeoutMs, settleMs) {
         return new Promise((resolve) => {
           let settleTimer = null;
           let timeoutTimer = null;
-          const finish = (v) => {
+          const finish = (ok, reason) => {
             clearTimeout(settleTimer); clearTimeout(timeoutTimer);
-            onChange = null;
-            resolve(v);
+            onChange = null; onSaves = null;
+            resolve({ ok, reason });
           };
-          const arm = () => {
-            clearTimeout(settleTimer);
-            settleTimer = setTimeout(() => finish(true), settleMs);
+          if (!inFlight) {
+            // comportamento di prima: quiete dall'ultima scrittura; al timeout vale
+            // la scrittura gia' vista.
+            const arm = () => {
+              clearTimeout(settleTimer);
+              settleTimer = setTimeout(() => finish(true), settleMs);
+            };
+            timeoutTimer = setTimeout(() => finish(changed), timeoutMs);
+            onChange = arm;
+            if (changed) arm();
+            return;
+          }
+          const decide = () => {
+            if (saves.sentSeq > saves.confirmedSeq) {
+              return finish(false, "Qricambi ha rifiutato l'ultimo salvataggio del preventivo");
+            }
+            if (!changed) return; // salvataggio confermato ma non ancora scritto in storage
+            finish(true);
           };
-          timeoutTimer = setTimeout(() => finish(changed), timeoutMs);
-          onChange = arm;
-          if (changed) arm();
+          const rearm = () => {
+            clearTimeout(settleTimer); settleTimer = null;
+            if (saves.inflight > 0) return; // attende la risposta
+            if (!changed && !(saves.sentSeq > 0)) return; // niente ancora
+            settleTimer = setTimeout(decide, settleMs);
+          };
+          timeoutTimer = setTimeout(() => {
+            const s = Math.round(timeoutMs / 1000);
+            finish(false, saves.inflight > 0
+              ? `Qricambi sta ancora salvando il preventivo (${saves.inflight} salvataggi in corso dopo ${s} s)`
+              : `Qricambi non ha confermato il salvataggio entro ${s} s`);
+          }, timeoutMs);
+          onChange = rearm; onSaves = rearm;
+          rearm();
         });
       },
     };
+  }
+
+  // Interruttore #47 dalle Opzioni (default: acceso). Non deve mai bloccare onBoth.
+  async function leggiAttendeInVolo() {
+    const def = DEFAULTS.importAttendeInVolo !== false;
+    try {
+      const s = await new Promise((resolve) =>
+        chrome.storage.local.get({ importAttendeInVolo: def }, resolve));
+      return !!s && s.importAttendeInVolo !== false;
+    } catch (e) { return def; }
   }
 
   function bothStop(reason) {
@@ -220,14 +289,24 @@
       return;
     }
     console.log(TAG, 'sequenza pricing → conferma salvataggio → import avviata');
-    const watch = armPatchWatch();
+    const watch = armPatchWatch(await leggiAttendeInVolo());
     try {
       const res = await onPricing();
       const blocked = bothBlockReason(res);
       if (blocked) { bothStop(blocked); return; }
+      if (bothNoChanges(res)) {
+        console.warn(TAG, 'onBoth: import NON eseguito — il pricing non ha cambiato nessuna riga');
+        if (typeof alert === 'function') {
+          alert('Pricing + Import: nessuna modifica.\n\nIl pricing non ha cambiato nessuna riga ' +
+                '(il preventivo e\' gia\' prezzato), quindi non parte nessun salvataggio e ' +
+                'niente e\' stato importato.\nUsa "Importa in SIRJ" per importarlo.');
+        }
+        return;
+      }
       const saved = await watch.wait(DEFAULTS.bothWaitMs, DEFAULTS.bothSettleMs);
-      if (!saved) {
-        bothStop(`Qricambi non ha confermato il salvataggio entro ${Math.round(DEFAULTS.bothWaitMs / 1000)} s`);
+      if (!saved.ok) {
+        bothStop(saved.reason ||
+          `Qricambi non ha confermato il salvataggio entro ${Math.round(DEFAULTS.bothWaitMs / 1000)} s`);
         return;
       }
       await onImport();

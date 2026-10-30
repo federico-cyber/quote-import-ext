@@ -1,9 +1,9 @@
-// import.content.js — AR AUTO — Qricambi v1.2.0 (ISOLATED world)
+// import.content.js — AR AUTO — Qricambi v1.2.1 (ISOLATED world)
 // Riceve payload via window.postMessage da injected.js (MAIN world) e li salva
 // in chrome.storage.local. Gestisce handler import (window.__AR_QRICAMBI.onImport),
 // storico import e POST al backend AR AUTO.
 (function () {
-  const TAG = "[QUOTE-IMPORT v1.2.0]";
+  const TAG = "[QUOTE-IMPORT v1.2.1]";
   console.log(TAG, "content script loaded (isolated)");
 
   // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
@@ -13,6 +13,16 @@
   chrome.storage.local.get({ fallbackCliforNumero: 5 }, ({ fallbackCliforNumero }) => {
     FALLBACK_CLIFOR_NUMERO = fallbackCliforNumero;
     console.log(TAG, "fallbackCliforNumero loaded:", FALLBACK_CLIFOR_NUMERO);
+  });
+
+  // ── 0b. Interruttore #49 — letto da storage, default acceso ─────────
+  // true: il preventivo "aperto" si segna solo su find/<id> riuscita
+  // (AR_QUOTE_OPEN, 2xx). false: come prima, gia' all'invio (AR_QUOTE_OPEN_INTENT).
+  // Si legge al caricamento della pagina (dopo averlo cambiato nelle Opzioni
+  // ricarica Qricambi).
+  let quoteOpenSoloOk = true;
+  chrome.storage.local.get({ quoteOpenSoloOk: true }, (s) => {
+    quoteOpenSoloOk = !s || s.quoteOpenSoloOk !== false;
   });
 
   // ── 1. Listener postMessage dal main-world script ─────────────────────
@@ -35,8 +45,11 @@
     if (event.source !== window) return;
     const data = event.data;
     if (!data) return;
-    if (data.source === "AR_QUOTE_OPEN") {
-      if (data.id) openQuoteId = String(data.id);
+    // #49: AR_QUOTE_OPEN parte solo su risposta 2xx; AR_QUOTE_OPEN_INTENT all'invio
+    // (find in 404/5xx o prefetch inclusi). Ne vale uno solo, secondo l'interruttore.
+    if (data.source === "AR_QUOTE_OPEN" || data.source === "AR_QUOTE_OPEN_INTENT") {
+      const attivo = quoteOpenSoloOk ? "AR_QUOTE_OPEN" : "AR_QUOTE_OPEN_INTENT";
+      if (data.source === attivo && data.id) openQuoteId = String(data.id);
       return;
     }
     if (data.source !== "AR_QUOTE_IMPORT" || !data.payload) return;

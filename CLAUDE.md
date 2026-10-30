@@ -20,7 +20,7 @@ Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage`; posta anche il cliente del preventivo aperto (`AR_QUOTE_CUSTOMER`) |
+| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage`; posta anche il cliente del preventivo aperto (`AR_QUOTE_CUSTOMER`), l'apertura (`AR_QUOTE_OPEN`, solo su find 2xx) e i salvataggi in volo (`AR_QUOTE_SAVES`) |
 | `defaults.js` | ISOLATED, document_idle | Unico `const DEFAULTS` flat (pricing + backend + injection) |
 | `fab.js` | ISOLATED, document_idle | Inietta l'unico FAB + menu, espone `window.__AR_QRICAMBI = { onPricing, onImport }` |
 | `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
@@ -64,8 +64,10 @@ che l'utente ha davanti. Tre regole:
   l'ultimo invio, non l'ultima risposta.
 - **Conferma sul mismatch.** `handleClick` confronta `payload.ID` con il preventivo
   aperto: numeri a 4+ cifre nell'URL (`idsFromHref`, in `defaults.js`), altrimenti l'ultimo id visto da
-  `injected.js` (`AR_QUOTE_OPEN` da `GET /api/Quote/find/<id>`, o l'ID dell'ultima PATCH
-  confermata). Se non coincidono mostra una conferma con i **due** preventivi e importa
+  `injected.js` (`AR_QUOTE_OPEN` da `GET /api/Quote/find/<id>` **solo se la risposta è 2xx**, #49;
+  o l'ID dell'ultima PATCH confermata). Una find in 404/5xx o in errore di rete non segna
+  nessun preventivo aperto: all'invio parte solo `AR_QUOTE_OPEN_INTENT`, che
+  `import.content.js` usa soltanto con l'interruttore `quoteOpenSoloOk` spento. Se non coincidono mostra una conferma con i **due** preventivi e importa
   solo se l'utente dice sì (scelta di Fede, #30). Se nessuna fonte dà un id
   ('unknown') non chiede nulla: resta la sola conferma d'import. Il formato dell'URL
   Qricambi e il `find/<id>` vengono dal bundle, **non** verificati su una pagina reale.
@@ -113,18 +115,53 @@ azione `syncUndoItem` lo ripristina invece di riabilitarlo sempre. Senza guardia
 ripristinava uno snapshot parziale e lo azzerava mentre `esegui()` ne stava ancora
 riempiendo le righe.
 
-### Pricing + Import (`onBoth` in `fab.js`, #31)
+### Pricing + Import (`onBoth` in `fab.js`, #31, #46, #47)
 
 Scelta di Fede «Fermati su errori». `onPricing` **ritorna** l'esito (`ok`/`tot`/`skip`/
-`skipReasons`; su eccezione `{..., error}`) e `onBoth` lo consuma: l'import NON parte se
+`skipReasons`/`cambiate`; su eccezione `{..., error}`) e `onBoth` lo consuma: l'import NON parte se
 l'esito manca, c'e' un errore, `tot===0`, `ok===0`, anche **una sola** riga saltata/fallita
 (`skip` o qualunque `skipReasons.*`) o la fascia sconto del cliente non è verificata
 (arauto#4911). Non c'e' piu' l'attesa fissa di 1800 ms: `onBoth`
 registra un listener `chrome.storage.onChanged` su `lastPatchPayload` **prima** del pricing,
-poi attende la scrittura (quiete `bothSettleMs` dall'ultima, per le PATCH ravvicinate) entro
-`bothWaitMs`. Senza scrittura (PATCH rifiutata, mai partita, oppure payload identico al
-precedente, per cui Chrome non emette `onChanged`) l'import non parte e compare un alert col
-motivo: l'utente puo' usare «Importa in SIRJ» a mano. Non rimettere un `setTimeout` fisso.
+poi attende la scrittura entro `bothWaitMs` (15 s). Senza scrittura (PATCH rifiutata, mai
+partita, oppure payload identico al precedente, per cui Chrome non emette `onChanged`) l'import
+non parte e compare un alert col motivo: l'utente puo' usare «Importa in SIRJ» a mano. Non
+rimettere un `setTimeout` fisso.
+
+- **Preventivo già prezzato (#46).** `cambiate` conta le righe in cui il pricing ha **davvero**
+  cambiato almeno un campo (sconto/listino/vendita: valore finale dell'input ≠ quello catturato
+  prima delle scritture, `rigaCambiata` in `pricing.content.js`); `ok` non basta, perché
+  `setVueInput` torna `true` anche se il valore c'era già. Con `cambiate === 0` `onBoth` mostra
+  **subito** «nessuna modifica… usa Importa in SIRJ» e non importa niente, senza aspettare
+  `bothWaitMs`. Non si deduce mai «niente cambiato» dall'assenza di PATCH; se `cambiate` manca
+  (esito vecchio) si attende come prima. Nessun interruttore.
+- **Quiete e salvataggi in volo (#47, interruttore `importAttendeInVolo`).** La quiete di
+  `bothSettleMs` (600 ms) da sola puo' chiudersi mentre una PATCH lenta e' ancora in volo
+  (import con prezzi misti). `injected.js` conta le PATCH in volo (salgono all'invio, scendono su
+  risposta di **qualsiasi** status, abort, errore di rete, timeout: se restassero > 0 l'import non
+  partirebbe piu') e posta `AR_QUOTE_SAVES {inflight, sentSeq, confirmedSeq}` (valori assoluti).
+  Con l'interruttore acceso `onBoth` importa solo quando c'e' stata la scrittura, **in volo = 0**
+  da `bothSettleMs` e l'ultima PATCH inviata e' confermata (`sentSeq === confirmedSeq`); un nuovo
+  invio azzera la quiete. Se l'ultima e' rifiutata: alert, niente import. Allo scadere di
+  `bothWaitMs` senza quiete: alert e **mai** import (anche con una scrittura gia' vista; a
+  interruttore spento invece vale la scrittura vista, come prima). Spento = solo quiete
+  dall'ultima scrittura, comportamento di prima della 1.2.1.
+
+### Interruttori di rollback (v1.2.1)
+
+In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso**. Servono a
+tornare al comportamento precedente dalle Opzioni, senza una nuova release (lo storage dei PC
+non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (vale dal prossimo);
+`quoteOpenSoloOk` al caricamento della pagina Qricambi (dopo averlo cambiato ricarica Qricambi).
+
+| Chiave | Fix | Spento |
+|---|---|---|
+| `importAttendeInVolo` | #47 (Pricing + Import aspetta i salvataggi in volo) | solo quiete di `bothSettleMs` dall'ultima scrittura |
+| `quoteOpenSoloOk` | #49 (preventivo aperto segnato solo su find 2xx) | preventivo aperto segnato all'invio della find, anche se poi fallisce |
+
+`injected.js` (mondo MAIN) non legge `chrome.storage`: posta sempre entrambi i segnali
+(`AR_QUOTE_OPEN` su 2xx e `AR_QUOTE_OPEN_INTENT` all'invio, `AR_QUOTE_SAVES`) e decide chi li
+consuma (`import.content.js`, `fab.js`) in base all'interruttore. Il fix #46 non ne ha.
 
 ### Sconto sempre intero 0-99 (#21)
 
