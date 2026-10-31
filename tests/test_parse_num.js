@@ -2,7 +2,8 @@
  *
  * Invariante sotto test: i numeri in formato italiano ("1.234,56") sono letti
  * con il punto come separatore delle migliaia e la virgola come decimale
- * (scelta di Fede su #32); "1234.56" resta un decimale con il punto; il segno
+ * (scelta di Fede su #32); un punto singolo è sempre decimale ("1234.56",
+ * "1.255": #48, Qricambi scrive il numero JS grezzo); il segno
  * meno vale solo in prima posizione ("-% 30" = -30), mai in mezzo ("10 - 20").
  *
  * pricing.content.js è un IIFE legato al DOM: estraiamo solo i blocchi puri
@@ -54,9 +55,29 @@ test('#32 "12,5" → 12.5 e "1234,56" → 1234.56 (solo virgola = decimale)', ()
 test('#32 "€ 1.234,00" → 1234 (simbolo valuta ignorato)', () => {
   assert.strictEqual(parseNum('€ 1.234,00'), 1234);
 });
-test('#32 "1.234" → 1234 (formato it-IT: gruppo di 3 cifre = migliaia)', () => {
-  assert.strictEqual(parseNum('1.234'), 1234);
+test('#48 punto singolo = decimale anche con 3 cifre: "1.234" → 1.234, "1.255" → 1.255', () => {
+  assert.strictEqual(parseNum('1.234'), 1.234);
+  assert.strictEqual(parseNum('1.255'), 1.255);
+  assert.strictEqual(parseNum('12.345'), 12.345);
+});
+test('#32 più punti = migliaia: "1.234.567" → 1234567', () => {
   assert.strictEqual(parseNum('1.234.567'), 1234567);
+});
+// Valori letti il 31/10/2026 da un preventivo vero su Qricambi (casella <input>
+// di Acquisto, Ricarico, Listino, Sconto, Vendita) e dall'elenco preventivi (totale
+// con IVA sopra i 1.000 €): Qricambi scrive il numero JS grezzo, punto decimale e
+// nessun separatore delle migliaia.
+test('#48 formato reale di Qricambi: "220", "38.86", "470", "35", "305.5", "1007.60"', () => {
+  assert.strictEqual(parseNum('220'), 220);
+  assert.strictEqual(parseNum('38.86'), 38.86);
+  assert.strictEqual(parseNum('470'), 470);
+  assert.strictEqual(parseNum('35'), 35);
+  assert.strictEqual(parseNum('305.5'), 305.5);
+  assert.strictEqual(parseNum('1007.60'), 1007.6);
+});
+test('#48 leggiCella su <input> con 3 decimali: "4.125" → 4.125, non 4125', () => {
+  const td = { querySelector: () => ({ value: '4.125' }), textContent: '€' };
+  assert.strictEqual(leggiCella(td), 4.125);
 });
 test('#32 punto singolo che resta decimale: "12.5", "0.123", "1234.567", "100.00"', () => {
   assert.strictEqual(parseNum('12.5'), 12.5);

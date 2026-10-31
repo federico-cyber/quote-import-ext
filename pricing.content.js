@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.4]';
+  const TAG = '[AR-PRICING v1.2.5]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -271,9 +271,11 @@
 
   // Legge un numero da testo/valore di cella. Formato italiano (quote-import-ext#32):
   //   "1.234,56" → 1234.56 (punto = migliaia, virgola = decimale)
-  //   "1234.56"  → 1234.56 (punto singolo con != 3 cifre dopo = decimale)
-  //   "1.234"    → 1234    (punto singolo + gruppo di 3 cifre, parte intera 1-3 cifre
-  //                         senza zero iniziale = migliaia it-IT)
+  //   "1234.56"  → 1234.56 (punto singolo = sempre decimale)
+  //   "1.255"    → 1.255   (quote-import-ext#48: le caselle di Qricambi mostrano il
+  //                         numero JS grezzo, punto decimale e niente migliaia:
+  //                         "305.5", "38.86", totale "1007.60")
+  //   "1.234.567"→ 1234567 (più punti = migliaia)
   //   "1,234.56" → 1234.56 (se ci sono entrambi, decimale è l'ultimo separatore)
   // Il segno vale solo in prima posizione ("-% 30" → -30); "10 - 20" → 10.
   function parseNum(str) {
@@ -292,10 +294,7 @@
     } else if (lastComma >= 0) {
       dec = tok.indexOf(',') === lastComma ? ',' : '';       // più virgole = migliaia
     } else if (lastDot >= 0 && tok.indexOf('.') === lastDot) {
-      const intPart = tok.slice(0, lastDot);
-      const frac = tok.slice(lastDot + 1);
-      const migliaia = frac.length === 3 && /^[1-9]\d{0,2}$/.test(intPart);
-      dec = migliaia ? '' : '.';
+      dec = '.';
     }
     let norm;
     if (dec) {
