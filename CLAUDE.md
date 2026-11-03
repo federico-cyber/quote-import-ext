@@ -20,7 +20,7 @@ Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
 
 | File | Mondo | Responsabilità |
 |---|---|---|
-| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage`; posta anche il cliente del preventivo aperto (`AR_QUOTE_CUSTOMER`), l'apertura (`AR_QUOTE_OPEN`, solo su find 2xx) e i salvataggi in volo (`AR_QUOTE_SAVES`) |
+| `injected.js` | MAIN, document_start | Hook `fetch`/`XHR`, intercetta `PATCH /api/Quote`, **attende la conferma del server** e solo allora posta il payload via `postMessage`; posta anche il cliente del preventivo aperto (`AR_QUOTE_CUSTOMER`), l'apertura (`AR_QUOTE_OPEN`, solo su find 2xx) e i salvataggi in volo (`AR_QUOTE_SAVES`); risponde ad `AR_FORM_CUSTOMER_REQ` col cliente scelto nel form (`AR_FORM_CUSTOMER`, #59) |
 | `defaults.js` | ISOLATED, document_idle | Unico `const DEFAULTS` flat (pricing + backend + injection) |
 | `fab.js` | ISOLATED, document_idle | Inietta l'unico FAB + menu, espone `window.__AR_QRICAMBI = { onPricing, onImport }` |
 | `pricing.content.js` | ISOLATED, document_idle | Logica pricing + `setVueInput`; registra `onPricing` |
@@ -100,6 +100,8 @@ node tests/test_import_response_branches.js
 node tests/test_annulla_pricing.js
 node tests/test_utile_colonna.js
 node tests/test_vendita_senza_input.js
+node tests/test_cliente_form.js
+node tests/test_leggi_fascia.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
@@ -152,7 +154,8 @@ rimettere un `setTimeout` fisso.
 
 ### Interruttori di rollback (v1.2.1, v1.2.2)
 
-In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso**. Servono a
+In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso** (tranne
+`fasciaClienteDalForm`, spento finché non è verificato dal vivo). Servono a
 tornare al comportamento precedente dalle Opzioni, senza una nuova release (lo storage dei PC
 non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (vale dal prossimo);
 `quoteOpenSoloOk` al caricamento della pagina Qricambi (dopo averlo cambiato ricarica Qricambi).
@@ -162,6 +165,7 @@ non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (va
 | `importAttendeInVolo` | #47 (Pricing + Import aspetta i salvataggi in volo) | solo quiete di `bothSettleMs` dall'ultima scrittura |
 | `quoteOpenSoloOk` | #49 (preventivo aperto segnato solo su find 2xx) | preventivo aperto segnato all'invio della find, anche se poi fallisce |
 | `regBSottoCosto` | #34 (listino non sopra l'acquisto → Regola B) | Regola A col listino com'è: sconto 0 e vendita = listino, sotto costo |
+| `fasciaClienteDalForm` | #59 (fascia dal cliente scelto nel form, anche non salvato) | cliente solo da `find/<id>` e PATCH confermate, come prima |
 
 `injected.js` (mondo MAIN) non legge `chrome.storage`: posta sempre entrambi i segnali
 (`AR_QUOTE_OPEN` su 2xx e `AR_QUOTE_OPEN_INTENT` all'invio, `AR_QUOTE_SAVES`) e decide chi li
@@ -209,16 +213,35 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   dell'URL senza cliente. Il cliente di un preventivo visto su un'altra pagina non si
   prende mai. La forma di `find/<id>` viene dal bundle: la console logga
   `customerdata presente` o `ASSENTE (chiavi: …)`, da controllare dal vivo.
+- **Cliente scelto nel form (#59, interruttore `fasciaClienteDalForm`).** In un preventivo
+  nuovo Qricambi crea il preventivo col cliente vuoto e la scelta del cliente nel form non
+  fa chiamate finché non si salva, ma senza prezzi non si salva: col solo `find/<id>` il
+  cliente resta ignoto (400). Con l'interruttore acceso `leggiFascia` chiede il cliente a
+  `injected.js` (`AR_FORM_CUSTOMER_REQ` → `AR_FORM_CUSTOMER`, 800 ms), che lo legge
+  dall'unico componente Vue 2 `QuoteEdit` visibile, prop `quoteToEdit.customerdata`
+  (verificato dal vivo il 03/11/2026). Decide `clienteFascia`: il cliente del form vince
+  su quello salvato (copre il cliente cambiato senza salvare). Il bridge si chiama sempre
+  e `esitoConFonte` corregge l'esito: form senza cliente → stato `senzaCliente` (salvo
+  flag del bridge spenta: allora la fascia non conta): il Pricing **non scrive prezzi**,
+  toast «Scegli prima il cliente» e ritorna con `error` (Pricing + Import non importa).
+  Form non letto (Qricambi cambiato, più form, timeout) → come prima: cliente salvato con
+  una riga nel toast che lo dice, o «cliente del preventivo non letto» e prezzi normali.
+  Override > 0: nessuna richiesta al form. Colore arancione e toast in primo piano solo
+  con l'interruttore acceso. L'interruttore va in `defaults.js` **spento** finché non è
+  verificato dal vivo.
 - **Nel dubbio, prezzi normali.** Solo `stato: 'recupero'` (risposta 200 con soglia e
   punti validi) porta la regola. Flag del bridge spenta → nessuna riga nel toast.
   Cliente non letto (400: «salva il preventivo e rilancia»), non trovato o ambiguo
   (422), errore, server giù o `X-API-Key` vuota nelle Opzioni (in quel caso nessuna
-  chiamata) → riga rossa «Fascia sconto non verificata» e pricing normale. In
+  chiamata) → riga «Fascia sconto non verificata» (rossa; arancione con `fasciaClienteDalForm`)
+  e pricing normale. Con `fasciaClienteDalForm` il riquadro col toast visibile sale a
+  `z-index` massimo (`.ar-toast-on`), sopra FAB e icone della pagina, e resta scuro (Vuetify di Qricambi colora `.success`/`.error` di verde/rosso con `!important`). In
   **Pricing + Import** invece l'import non parte: `bothBlockReason` pretende
   `res.fascia.stato` fra `recupero`, `normale` e `spento`, altrimenti alert col motivo. Fascia normale → riga «NOME · fascia L»; recupero → riga arancione con
   soglia, punti e righe toccate.
 - Test: `node tests/test_fascia_recupero.js` (regola, sweep, scelta del preventivo,
-  ogni ramo della risposta) e i casi `find/<id>` di `tests/test_injected_confirm.js`.
+  ogni ramo della risposta, `clienteFascia`, `esitoConFonte`), `node tests/test_cliente_form.js`
+  (`clienteDalForm`), `node tests/test_leggi_fascia.js` (`leggiFascia` con l'opzione) e i casi `find/<id>` e `#59` di `tests/test_injected_confirm.js`.
 
 ### Listino sotto l'acquisto e esito delle riscritture (#34)
 

@@ -66,9 +66,13 @@ function makeSandbox({ fetchImpl }) {
     }
   }
 
+  const winListeners = {};
   const win = {
     fetch: fetchImpl,
     XMLHttpRequest: FakeXHR,
+    addEventListener: (type, fn) => { (winListeners[type] = winListeners[type] || []).push(fn); },
+    // helper di test: un postMessage della pagina/del content script verso injected.js
+    _receive: (data, source = win) => { for (const fn of winListeners.message || []) fn({ source, data }); },
     postMessage: (msg) => {
       all.push(msg);
       if (!CONTROLLO.has(msg.source)) messages.push(msg);
@@ -87,6 +91,47 @@ const PATCH_INIT = () => ({ method: 'PATCH', body: JSON.stringify(PAYLOAD) });
 
 const cases = [];
 function test(name, fn) { cases.push([name, fn]); }
+
+// ── #59: cliente scelto nel form, su richiesta del pricing ───────────────
+function conDocumento(radice, fn) {
+  const prima = globalThis.document;
+  globalThis.document = { querySelector: (sel) => (sel === '#app' ? { __vue__: radice } : null) };
+  try { return fn(); } finally { globalThis.document = prima; }
+}
+const formVisibile = { isConnected: true, getClientRects: () => [{}] };
+const radiceGima = { $options: { name: 'v-app' }, $children: [{ $options: { name: 'QuoteEdit' },
+  $el: formVisibile, $children: [], quoteToEdit: { ID: 390061, customerdata: { CustomerCode: '158' } } }] };
+
+test('#59 AR_FORM_CUSTOMER_REQ → risponde col cliente del form e lo stesso reqId', () => {
+  const s = makeSandbox({ fetchImpl: async () => ({}) });
+  conDocumento(radiceGima, () => s.win._receive({ source: 'AR_FORM_CUSTOMER_REQ', reqId: 'r1' }));
+  const r = s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER');
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].reqId, 'r1');
+  assert.strictEqual(r[0].trovato, true);
+  assert.strictEqual(r[0].id, '390061');
+  assert.strictEqual(r[0].customerdata.CustomerCode, '158');
+});
+
+test('#59 errore nella lettura del form → risponde trovato:false, non lancia', () => {
+  const s = makeSandbox({ fetchImpl: async () => ({}) });
+  globalThis.document = { querySelector: () => { throw new Error('boom'); } };
+  try { s.win._receive({ source: 'AR_FORM_CUSTOMER_REQ', reqId: 'r2' }); }
+  finally { delete globalThis.document; }
+  const r = s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER');
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].trovato, false);
+});
+
+test('#59 messaggi da altre finestre o di altro tipo → nessuna risposta', () => {
+  const s = makeSandbox({ fetchImpl: async () => ({}) });
+  conDocumento(radiceGima, () => {
+    s.win._receive({ source: 'AR_FORM_CUSTOMER_REQ', reqId: 'r3' }, {});
+    s.win._receive({ source: 'ALTRO', reqId: 'r4' });
+    s.win._receive(null);
+  });
+  assert.strictEqual(s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER').length, 0);
+});
 
 // ── A. fetch: PATCH rifiutata dal server → NIENTE postMessage ────────────
 test('fetch: PATCH con risposta 500 non pubblica il payload', async () => {
