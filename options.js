@@ -41,7 +41,7 @@ function loadSettings() {
     document.getElementById('importAttendeInVolo').checked = s.importAttendeInVolo !== false;
     document.getElementById('quoteOpenSoloOk').checked = s.quoteOpenSoloOk !== false;
     document.getElementById('regBSottoCosto').checked = s.regBSottoCosto !== false;
-    document.getElementById('fasciaClienteDalForm').checked = s.fasciaClienteDalForm === true;
+    document.getElementById('fasciaClienteDalForm').checked = s.fasciaClienteDalForm !== false;
     clearAllErrors();
   });
 }

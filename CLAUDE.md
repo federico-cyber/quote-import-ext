@@ -154,8 +154,7 @@ rimettere un `setTimeout` fisso.
 
 ### Interruttori di rollback (v1.2.1, v1.2.2)
 
-In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso** (tranne
-`fasciaClienteDalForm`, spento finché non è verificato dal vivo). Servono a
+In `defaults.js` e nelle Opzioni (sezione «Correzioni (rollback)»), **default acceso**. Servono a
 tornare al comportamento precedente dalle Opzioni, senza una nuova release (lo storage dei PC
 non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (vale dal prossimo);
 `quoteOpenSoloOk` al caricamento della pagina Qricambi (dopo averlo cambiato ricarica Qricambi).
@@ -227,8 +226,8 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   Form non letto (Qricambi cambiato, più form, timeout) → come prima: cliente salvato con
   una riga nel toast che lo dice, o «cliente del preventivo non letto» e prezzi normali.
   Override > 0: nessuna richiesta al form. Colore arancione e toast in primo piano solo
-  con l'interruttore acceso. L'interruttore va in `defaults.js` **spento** finché non è
-  verificato dal vivo.
+  con l'interruttore acceso. Acceso di default dalla v1.2.7, dopo la verifica dal vivo
+  (03/11/2026) su un preventivo nuovo col cliente GIMA (1106) non salvato.
 - **Nel dubbio, prezzi normali.** Solo `stato: 'recupero'` (risposta 200 con soglia e
   punti validi) porta la regola. Flag del bridge spenta → nessuna riga nel toast.
   Cliente non letto (400: «salva il preventivo e rilancia»), non trovato o ambiguo

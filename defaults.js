@@ -1,7 +1,7 @@
 // defaults.js — single source of truth per l'estensione unificata "AR AUTO — Qricambi".
 // Caricato prima di fab.js / pricing.content.js / import.content.js (content scripts)
 // e di options.js / popup.js (pagine estensione).
-// Version: 1.2.6
+// Version: 1.2.7
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,
@@ -48,7 +48,8 @@ const DEFAULTS = {
   // scelto nel form del preventivo, anche se non ancora salvato; senza cliente nel
   // form il Pricing non scrive prezzi. Spento: cliente dall'ultimo salvataggio/
   // apertura del preventivo, come prima. Vale dal prossimo pricing.
-  fasciaClienteDalForm: false,
+  // Acceso dalla v1.2.7, dopo la verifica dal vivo del 03/11/2026.
+  fasciaClienteDalForm: true,
 };
 
 // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
