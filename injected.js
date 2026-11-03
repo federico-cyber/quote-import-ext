@@ -6,7 +6,7 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.2.5]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.6]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
@@ -136,6 +136,68 @@
                   cd ? "presente" : "ASSENTE (chiavi: " + Object.keys(parsed || {}).join(",") + ")");
     } catch (e) { /* risposta non JSON: il pricing prezza senza fascia */ }
   }
+
+  // ── CLIENTE SCELTO NEL FORM (quote-import-ext#59) ──
+  // Qricambi (Vue 2) tiene il preventivo in modifica nel componente QuoteEdit,
+  // prop `quoteToEdit`: il cliente scelto nel form e' gia' in `customerdata`
+  // prima del salvataggio (verificato dal vivo il 03/11/2026). pricing.content.js
+  // (ISOLATED) non vede `__vue__`: chiede con AR_FORM_CUSTOMER_REQ e qui si
+  // risponde con AR_FORM_CUSTOMER.
+  // Esito: { trovato: false, motivo } se il form non si legge (nessun QuoteEdit
+  // visibile, o piu' di uno); { trovato: true, id, customerdata } altrimenti,
+  // con customerdata null se nel form non c'e' un cliente.
+  const CAMPI_CLIENTE = ["CustomerCode", "Vat", "TaxID", "Email", "CustomerName"];
+  function clienteDalForm(rootVm) {
+    const visibili = [];
+    const coda = rootVm ? [rootVm] : [];
+    for (let i = 0; i < coda.length && i < 20000; i++) {
+      const vm = coda[i];
+      const el = vm.$el;
+      if (vm.$options && vm.$options.name === "QuoteEdit" && el && el.isConnected
+          && typeof el.getClientRects === "function" && el.getClientRects().length > 0) visibili.push(vm);
+      for (const c of vm.$children || []) coda.push(c);
+    }
+    if (!visibili.length) return { trovato: false, motivo: "form del preventivo non trovato" };
+    // Qricambi annida due QuoteEdit: il contenitore della scheda (senza
+    // quoteToEdit) e il form vero. Conta solo quelli col preventivo.
+    const forms = visibili.filter((vm) => vm.quoteToEdit && typeof vm.quoteToEdit === "object");
+    if (forms.length !== 1) {
+      return { trovato: false, motivo: forms.length
+        ? "piu' preventivi aperti nella pagina" : "preventivo del form non leggibile" };
+    }
+    const q = forms[0].quoteToEdit;
+    const cd = q.customerdata;
+    let pulito = null;
+    if (cd && typeof cd === "object" && !Array.isArray(cd)) {
+      // Solo i campi semplici (niente Account/User annidati); quelli del
+      // matching come stringa, come li vuole il bridge.
+      pulito = {};
+      for (const k of Object.keys(cd)) {
+        const v = cd[k];
+        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+          pulito[k] = CAMPI_CLIENTE.includes(k) && typeof v === "number" ? String(v) : v;
+        }
+      }
+      // "0"/false/vuoto non sono un cliente (segnaposto di un preventivo nuovo).
+      const pieno = (v) => !["", "0", "false", "null", "undefined"].includes(String(v ?? "").trim());
+      if (!CAMPI_CLIENTE.some((k) => pieno(pulito[k]))) pulito = null;
+    }
+    return { trovato: true, id: q.ID != null ? String(q.ID) : null, customerdata: pulito };
+  }
+  // ── fine clienteDalForm ──
+
+  window.addEventListener("message", function (event) {
+    const d = event.data;
+    if (event.source !== window || !d || d.source !== "AR_FORM_CUSTOMER_REQ") return;
+    let esito;
+    try {
+      const app = document.querySelector("#app");
+      esito = clienteDalForm(app && app.__vue__);
+    } catch (e) {
+      esito = { trovato: false, motivo: "errore nella lettura del form" };
+    }
+    window.postMessage(Object.assign({ source: "AR_FORM_CUSTOMER", reqId: d.reqId }, esito), "*");
+  });
 
   function logRejected(via, status, parsed) {
     console.log(TAG, `via=${via} PATCH /api/Quote NON confermata (status=${status}) ` +

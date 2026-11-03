@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.5]';
+  const TAG = '[AR-PRICING v1.2.6]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -60,6 +60,12 @@
       gap: 8px;
       font-family: -apple-system, 'DM Sans', sans-serif;
     }
+    /* #59: col toast visibile tutto il riquadro sale sopra ogni altro elemento
+       della pagina (FAB, icone di Qricambi): l'avviso non deve restare coperto */
+    #ar-pricing-ui.ar-toast-on { z-index: 2147483647; }
+    /* Vuetify di Qricambi colora .success/.error con !important (sfondo verde
+       o rosso, testo arancione illeggibile): con l'opzione il toast resta scuro */
+    #ar-pricing-ui.ar-toast-on #ar-pricing-toast { background: #16181c !important; }
     #ar-pricing-toast {
       background: #16181c;
       border: 1px solid #2a2d34;
@@ -257,7 +263,12 @@
     if (!toast) return;
     toast.innerHTML = html;
     toast.className = `visible ${type}`;
-    if (ms > 0) setTimeout(() => { toast.className = ''; }, ms);
+    if (toast.parentElement && S.fasciaClienteDalForm === true) toast.parentElement.classList.add('ar-toast-on');
+    clearTimeout(showToast.timer);
+    if (ms > 0) showToast.timer = setTimeout(() => {
+      toast.className = '';
+      if (toast.parentElement) toast.parentElement.classList.remove('ar-toast-on');
+    }, ms);
   }
 
   // Helper: aggiunge una riga colorata al toast via DOM (nessun dato utente in innerHTML).
@@ -598,12 +609,41 @@
     }
   });
 
+  // ── LETTURA FASCIA (estratta da tests/test_leggi_fascia.js) ──
+  // #59: cliente scelto nel form, anche non salvato. Lo legge injected.js (MAIN,
+  // vede i componenti Vue); qui si aspetta la risposta per FORM_TIMEOUT_MS, poi
+  // null (form non letto).
+  const FORM_TIMEOUT_MS = 800;
+  function chiediClienteForm() {
+    return new Promise((resolve) => {
+      const reqId = Math.random().toString(36).slice(2);
+      const fine = (v) => { window.removeEventListener('message', onMsg); clearTimeout(t); resolve(v); };
+      const onMsg = (event) => {
+        const d = event.data;
+        if (event.source === window && d && d.source === 'AR_FORM_CUSTOMER' && d.reqId === reqId) fine(d);
+      };
+      const t = setTimeout(() => fine(null), FORM_TIMEOUT_MS);
+      window.addEventListener('message', onMsg);
+      window.postMessage({ source: 'AR_FORM_CUSTOMER_REQ', reqId }, '*');
+    });
+  }
+
   const FASCIA_TIMEOUT_MS = 4000;
   async function leggiFascia() {
     const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
     if (errore) return errore;
     const override = parseInt(S.overrideCliforNumero, 10);
-    const { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
+    let { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
+    let scelta = null;
+    if (!(override > 0) && S.fasciaClienteDalForm === true) {
+      const form = await chiediClienteForm();
+      scelta = clienteFascia(form, { id, customerdata });
+      console.log(TAG, 'cliente per la fascia:', scelta.fonte, scelta.id,
+        form && !form.trovato ? `(form non letto: ${form.motivo})` : form ? '' : '(form senza risposta)');
+      ({ id, customerdata } = scelta);
+    }
+    // Anche senza cliente si chiama il bridge: se la sua flag e' spenta la
+    // fascia non conta e il pricing va avanti (esitoConFonte).
     const body = override > 0 ? { override_clifor_numero: override } : { customerdata };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FASCIA_TIMEOUT_MS);
@@ -616,16 +656,17 @@
       });
       let data = null;
       try { data = await res.json(); } catch (e) { /* corpo non JSON */ }
-      const esito = esitoFascia(res.status, data, override > 0 || !!customerdata);
+      const esito = esitoConFonte(scelta, esitoFascia(res.status, data, override > 0 || !!customerdata));
       console.log(TAG, `fascia cliente preventivo ${id}: HTTP ${res.status}`, esito);
       return esito;
     } catch (e) {
       console.warn(TAG, 'fascia cliente: server non raggiungibile', e);
-      return esitoFascia(0, null, !!customerdata);
+      return esitoConFonte(scelta, esitoFascia(0, null, !!customerdata));
     } finally {
       clearTimeout(timer);
     }
   }
+  // ── fine leggiFascia ──
 
   function toastFascia(f, nRecupero) {
     const span = document.createElement('span');
@@ -639,10 +680,17 @@
     } else if (f.stato === 'spento') {
       return '';
     } else {
-      span.className = 'r';
+      span.className = S.fasciaClienteDalForm === true ? 'o' : 'r';
       span.textContent = `● Fascia sconto non verificata (${f.motivo}): prezzi normali`;
     }
-    return span.outerHTML + '<br>';
+    let html = span.outerHTML + '<br>';
+    if (f.nota) {
+      const nota = document.createElement('span');
+      nota.className = 'o';
+      nota.textContent = `● ${f.nota}`;
+      html += nota.outerHTML + '<br>';
+    }
+    return html;
   }
 
   // ── HANDLER: registrato su window.__AR_QRICAMBI per il menu FAB ──
@@ -652,6 +700,17 @@
     try {
       await loadSettings(); // Ricarica prima di ogni esecuzione
       const fascia = await leggiFascia();
+      if (fascia.stato === 'senzaCliente') {
+        // #59: senza cliente la fascia non si sa: nessun prezzo scritto.
+        const span = document.createElement('span');
+        span.className = 'o';
+        span.textContent = `● ${fascia.motivo}`;
+        showToast(`<b>Scegli prima il cliente</b><br>${span.outerHTML}<br>` +
+          `<span class="m">Nessun prezzo scritto: la fascia sconto dipende dal cliente.</span>`, 'error', 8000);
+        return { tot: 0, ok: 0, skip: 0, skipReasons: {}, dettagli: [], cambiate: 0,
+          error: 'scegli prima il cliente del preventivo',
+          fascia: { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: 0 } };
+      }
       const res = await esegui(fascia.stato === 'recupero' ? fascia.recupero : null);
       const nRecupero = (res.dettagli || []).filter(r => r.recuperoApplicato).length;
       res.fascia = { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: nRecupero };
@@ -1001,6 +1060,41 @@
       || (u && clienti.has(u) && (!ids.length || ultimo.href === href) ? u : null)
       || ids[0] || u || null;
     return { id, customerdata: (id && clienti.get(id)) || null };
+  }
+
+  // #59 (opzione fasciaClienteDalForm): da quale cliente si legge la fascia.
+  // form = risposta di injected.js (null se non e' arrivata); salvato = scelta
+  // di scegliPreventivo (ultimo find/PATCH). Il form vince: e' il cliente che
+  // l'operatore vede ora, anche se l'ha cambiato senza salvare.
+  //   fonte 'form'        cliente scelto nel form
+  //   fonte 'formVuoto'   form letto, nessun cliente scelto
+  //   fonte 'salvataggio' form non letto, cliente dell'ultimo find/PATCH
+  //   fonte 'nessuno'     form non letto e nessun cliente salvato
+  function clienteFascia(form, salvato) {
+    if (form && form.trovato) {
+      return { fonte: form.customerdata ? 'form' : 'formVuoto', id: form.id, customerdata: form.customerdata || null };
+    }
+    if (salvato.customerdata) return { fonte: 'salvataggio', id: salvato.id, customerdata: salvato.customerdata };
+    return { fonte: 'nessuno', id: salvato.id, customerdata: null };
+  }
+
+  // #59: esito del bridge corretto secondo la fonte del cliente (scelta null =
+  // opzione spenta o override: esito invariato). Form senza cliente: nessun
+  // prezzo (senzaCliente), salvo flag del bridge spenta (la fascia non conta).
+  // Form non letto: come prima, ma il toast dice da dove viene il cliente.
+  function esitoConFonte(scelta, esito) {
+    if (!scelta) return esito;
+    if (scelta.fonte === 'formVuoto') {
+      return esito.stato === 'spento' ? esito
+        : { stato: 'senzaCliente', motivo: 'nel preventivo non c\'è ancora un cliente' };
+    }
+    if (scelta.fonte === 'salvataggio' && esito.stato !== 'spento') {
+      return { ...esito, nota: 'cliente letto dall\'ultimo salvataggio, non dal preventivo aperto: se l\'hai cambiato, salva e rilancia' };
+    }
+    if (scelta.fonte === 'nessuno' && esito.stato === 'sconosciuto') {
+      return { ...esito, motivo: 'cliente del preventivo non letto' };
+    }
+    return esito;
   }
 
   // Opzioni minime per leggere la fascia: senza indirizzo o senza chiave non

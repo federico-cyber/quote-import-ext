@@ -201,6 +201,16 @@ for (const [nome, fascia] of [
   });
 }
 
+// #59: senza cliente nel form il pricing non scrive e torna con `error`.
+test('onBoth non importa se manca il cliente del preventivo', async () => {
+  const r = await runBlocked({ tot: 0, ok: 0, skip: 0, skipReasons: {}, dettagli: [], cambiate: 0,
+    error: 'scegli prima il cliente del preventivo',
+    fascia: { stato: 'senzaCliente', motivo: "nel preventivo non c'è ancora un cliente", righeRecupero: 0 } });
+  assert.strictEqual(r.imports, 0);
+  assert.strictEqual(r.alerts.length, 1);
+  assert.ok(/scegli prima il cliente/.test(r.alerts[0]), r.alerts[0]);
+});
+
 for (const stato of ['recupero', 'normale', 'spento']) {
   test(`onBoth importa con fascia '${stato}'`, async () => {
     let imports = 0;

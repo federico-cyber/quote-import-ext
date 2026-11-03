@@ -29,8 +29,8 @@ assert.ok(start > 0 && end > start, 'blocco calcolaRiga non trovato in pricing.c
 const ctx = vm.createContext({ URL });
 vm.runInContext(DEFAULTS_SRC, ctx);
 vm.runInContext(SRC.slice(start, end) +
-  '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia };', ctx);
-const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia } = ctx.f;
+  '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte };', ctx);
+const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte } = ctx.f;
 
 const DEF = {
   regADelta: 20, regACapThreshold: 80, regACapValue: 70,
@@ -249,6 +249,62 @@ test('401, 500, rete giù, corpo non JSON → errore, prezzi normali', () => {
   assert.strictEqual(giu.stato, 'errore');
   assert.ok(/non raggiungibile/.test(giu.motivo));
   assert.strictEqual(esitoFascia(200, null, true).stato, 'errore');
+});
+
+// ── clienteFascia / esitoConFonte: cliente dal form (#59, opzione fasciaClienteDalForm) ──
+const GIMA_CD = { CustomerCode: '158', CustomerName: 'AUTOFFICINA GIMA SNC' };
+const ALTRO = { CustomerCode: '77', CustomerName: 'ALTRO SRL' };
+const REC_OK = { stato: 'recupero', nome: 'GIMA', listino: 1106, recupero: { soglia: 55, punti: 5 } };
+test('form con cliente non salvato → usa il form', () => {
+  const r = clienteFascia({ trovato: true, id: '390061', customerdata: GIMA_CD }, { id: '390061', customerdata: null });
+  assert.strictEqual(r.fonte, 'form');
+  assert.strictEqual(r.customerdata, GIMA_CD);
+});
+test('cliente cambiato nel form → vince il form sul salvato', () => {
+  const r = clienteFascia({ trovato: true, id: '390061', customerdata: GIMA_CD }, { id: '390061', customerdata: ALTRO });
+  assert.strictEqual(r.customerdata, GIMA_CD);
+});
+test('form senza cliente → formVuoto, anche con un cliente salvato prima', () => {
+  const r = clienteFascia({ trovato: true, id: '390061', customerdata: null }, { id: '390061', customerdata: ALTRO });
+  assert.strictEqual(r.fonte, 'formVuoto');
+  assert.strictEqual(r.customerdata, null);
+});
+test('form non letto → ripiega sul cliente salvato', () => {
+  for (const form of [null, { trovato: false, motivo: 'form del preventivo non trovato' }]) {
+    const r = clienteFascia(form, { id: '390061', customerdata: ALTRO });
+    assert.strictEqual(r.fonte, 'salvataggio');
+    assert.strictEqual(r.customerdata, ALTRO);
+  }
+});
+test('form non letto e nessun cliente salvato → nessuno', () => {
+  assert.strictEqual(clienteFascia(null, { id: null, customerdata: null }).fonte, 'nessuno');
+});
+test('esitoConFonte: opzione spenta (scelta null) → esito invariato', () => {
+  const e = esitoFascia(400, {}, false);
+  assert.strictEqual(esitoConFonte(null, e), e);
+});
+test('esitoConFonte: form vuoto → senzaCliente per ogni esito tranne spento', () => {
+  for (const e of [esitoFascia(400, {}, false), esitoFascia(0, null, false), esitoFascia(422, {}, false), REC_OK]) {
+    const r = esitoConFonte({ fonte: 'formVuoto' }, e);
+    assert.strictEqual(r.stato, 'senzaCliente');
+    assert.ok(/non c'è ancora un cliente/.test(r.motivo));
+  }
+  assert.strictEqual(esitoConFonte({ fonte: 'formVuoto' }, { stato: 'spento' }).stato, 'spento');
+});
+test('esitoConFonte: cliente dal form → esito invariato', () => {
+  assert.strictEqual(esitoConFonte({ fonte: 'form' }, REC_OK), REC_OK);
+});
+test('esitoConFonte: cliente salvato (form non letto) → stesso esito con la nota', () => {
+  const r = esitoConFonte({ fonte: 'salvataggio' }, REC_OK);
+  assert.strictEqual(r.stato, 'recupero');
+  assert.deepStrictEqual(r.recupero, REC_OK.recupero);
+  assert.ok(/ultimo salvataggio/.test(r.nota));
+  assert.strictEqual(esitoConFonte({ fonte: 'salvataggio' }, { stato: 'spento' }).nota, undefined);
+});
+test('esitoConFonte: nessun cliente → sconosciuto «non letto», niente «salva e rilancia»', () => {
+  const r = esitoConFonte({ fonte: 'nessuno' }, esitoFascia(400, {}, false));
+  assert.strictEqual(r.stato, 'sconosciuto');
+  assert.ok(!/salva/.test(r.motivo), r.motivo);
 });
 
 if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }

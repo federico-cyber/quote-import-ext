@@ -124,6 +124,7 @@ function makeInjectedEnv() {
   const win = {
     fetch: (url, init) => new Promise((resolve) => pendingFetch.push({ url, init, resolve })),
     XMLHttpRequest: function () {},
+    addEventListener: () => {},
     postMessage: (m) => messages.push(m),
   };
   // eslint-disable-next-line no-new-func
