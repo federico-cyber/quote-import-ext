@@ -1,9 +1,11 @@
-/* leggiFascia con l'opzione fasciaClienteDalForm (quote-import-ext#59).
+/* leggiFascia: cliente dal form del preventivo (quote-import-ext#59, #63).
  *
  * Invarianti sotto test:
- *  - opzione spenta o override > 0: nessuna richiesta al form, body come prima;
- *  - opzione accesa: il cliente del form va al bridge (anche cambiato rispetto
- *    al salvato); form senza cliente → senzaCliente (bridge con flag spenta → spento);
+ *  - override > 0: nessuna richiesta al form, body override;
+ *  - il cliente del form va sempre al bridge (anche cambiato rispetto al
+ *    salvato), anche se le Opzioni hanno salvato il vecchio interruttore a false;
+ *    form senza cliente → senzaCliente (bridge con flag spenta → spento);
+ *  - il body porta ext_version e fonte per il log del bridge;
  *  - form che non risponde entro il timeout → ripiego sul cliente salvato;
  *  - una risposta con un reqId diverso non viene presa.
  *
@@ -89,17 +91,23 @@ const richiesteForm = (e) => e.richieste.filter((m) => m.source === 'AR_FORM_CUS
 const cases = [];
 const test = (name, fn) => cases.push([name, fn]);
 
-test('opzione spenta: nessuna richiesta al form, cliente non salvato → sconosciuto come prima', async () => {
+test('vecchio interruttore salvato a false: il form si legge lo stesso (#63)', async () => {
   const e = makeEnv({ S: { fasciaClienteDalForm: false }, form: formCon(GIMA), bridge: BRIDGE });
   const r = await e.leggi();
-  assert.strictEqual(richiesteForm(e), 0);
-  assert.deepStrictEqual(e.chiamate, [{ customerdata: null }]);
-  assert.strictEqual(r.stato, 'sconosciuto');
-  assert.ok(/salva il preventivo/.test(r.motivo));
+  assert.strictEqual(richiesteForm(e), 1);
+  assert.strictEqual(e.chiamate[0].customerdata.CustomerCode, '158');
+  assert.strictEqual(r.stato, 'recupero');
 });
 
-test('opzione accesa: cliente scelto nel form non salvato → recupero', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: formCon(GIMA), bridge: BRIDGE });
+test('il body porta versione e fonte del cliente per il log del bridge', async () => {
+  const e = makeEnv({ S: {}, form: formCon(GIMA), bridge: BRIDGE });
+  await e.leggi();
+  assert.strictEqual(e.chiamate[0].fonte, 'form');
+  assert.ok('ext_version' in e.chiamate[0]);
+});
+
+test('cliente scelto nel form non salvato → recupero', async () => {
+  const e = makeEnv({ S: {}, form: formCon(GIMA), bridge: BRIDGE });
   const r = await e.leggi();
   assert.strictEqual(richiesteForm(e), 1);
   assert.strictEqual(e.chiamate[0].customerdata.CustomerCode, '158');
@@ -107,51 +115,51 @@ test('opzione accesa: cliente scelto nel form non salvato → recupero', async (
   assert.deepStrictEqual({ ...r.recupero }, { soglia: 55, punti: 5 });
 });
 
-test('opzione accesa: cliente cambiato nel form → va al bridge quello del form', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: formCon(GIMA), salvato: ALTRO, bridge: BRIDGE });
+test('cliente cambiato nel form → va al bridge quello del form', async () => {
+  const e = makeEnv({ S: {}, form: formCon(GIMA), salvato: ALTRO, bridge: BRIDGE });
   const r = await e.leggi();
   assert.strictEqual(e.chiamate[0].customerdata.CustomerCode, '158');
   assert.strictEqual(r.stato, 'recupero');
 });
 
-test('opzione accesa: form senza cliente → senzaCliente', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: formCon(null), salvato: ALTRO, bridge: BRIDGE });
+test('form senza cliente → senzaCliente', async () => {
+  const e = makeEnv({ S: {}, form: formCon(null), salvato: ALTRO, bridge: BRIDGE });
   const r = await e.leggi();
   assert.strictEqual(r.stato, 'senzaCliente');
   assert.ok(/non c'è ancora un cliente/.test(r.motivo));
 });
 
-test('opzione accesa: form senza cliente ma fascia spenta sul bridge → spento (pricing normale)', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: formCon(null), bridge: BRIDGE_SPENTO });
+test('form senza cliente ma fascia spenta sul bridge → spento (pricing normale)', async () => {
+  const e = makeEnv({ S: {}, form: formCon(null), bridge: BRIDGE_SPENTO });
   assert.strictEqual((await e.leggi()).stato, 'spento');
 });
 
-test('opzione accesa: form muto (timeout) → cliente salvato con la nota', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: 'muto', salvato: GIMA, bridge: BRIDGE });
+test('form muto (timeout) → cliente salvato con la nota', async () => {
+  const e = makeEnv({ S: {}, form: 'muto', salvato: GIMA, bridge: BRIDGE });
   const r = await e.leggi();
   assert.strictEqual(e.chiamate[0].customerdata.CustomerCode, '158');
   assert.strictEqual(r.stato, 'recupero');
   assert.ok(/ultimo salvataggio/.test(r.nota));
 });
 
-test('opzione accesa: risposta con reqId diverso ignorata → ripiego (nessun cliente)', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: 'altroReq', bridge: BRIDGE });
+test('risposta con reqId diverso ignorata → ripiego (nessun cliente)', async () => {
+  const e = makeEnv({ S: {}, form: 'altroReq', bridge: BRIDGE });
   const r = await e.leggi();
-  assert.deepStrictEqual(e.chiamate, [{ customerdata: null }]);
+  assert.deepStrictEqual(e.chiamate, [{ customerdata: null, ext_version: null, fonte: 'nessuno' }]);
   assert.strictEqual(r.stato, 'sconosciuto');
   assert.strictEqual(r.motivo, 'cliente del preventivo non letto');
 });
 
-test('opzione accesa con override > 0: nessuna richiesta al form, body override', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true, overrideCliforNumero: 42 }, form: formCon(null), bridge: BRIDGE });
+test('override > 0: nessuna richiesta al form, body override', async () => {
+  const e = makeEnv({ S: { overrideCliforNumero: 42 }, form: formCon(null), bridge: BRIDGE });
   const r = await e.leggi();
   assert.strictEqual(richiesteForm(e), 0);
-  assert.deepStrictEqual(e.chiamate, [{ override_clifor_numero: 42 }]);
+  assert.deepStrictEqual(e.chiamate, [{ override_clifor_numero: 42, ext_version: null, fonte: 'override' }]);
   assert.strictEqual(r.stato, 'normale');
 });
 
-test('opzione accesa: form senza cliente e bridge giù → senzaCliente', async () => {
-  const e = makeEnv({ S: { fasciaClienteDalForm: true }, form: formCon(null), bridge: () => { throw new Error('rete'); } });
+test('form senza cliente e bridge giù → senzaCliente', async () => {
+  const e = makeEnv({ S: {}, form: formCon(null), bridge: () => { throw new Error('rete'); } });
   assert.strictEqual((await e.leggi()).stato, 'senzaCliente');
 });
 

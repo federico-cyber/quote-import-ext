@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.7]';
+  const TAG = '[AR-PRICING v1.2.8]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -263,7 +263,7 @@
     if (!toast) return;
     toast.innerHTML = html;
     toast.className = `visible ${type}`;
-    if (toast.parentElement && S.fasciaClienteDalForm === true) toast.parentElement.classList.add('ar-toast-on');
+    if (toast.parentElement) toast.parentElement.classList.add('ar-toast-on');
     clearTimeout(showToast.timer);
     if (ms > 0) showToast.timer = setTimeout(() => {
       toast.className = '';
@@ -629,13 +629,16 @@
   }
 
   const FASCIA_TIMEOUT_MS = 4000;
+  function versioneEstensione() {
+    try { return chrome.runtime.getManifest().version; } catch (e) { return null; }
+  }
   async function leggiFascia() {
     const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
     if (errore) return errore;
     const override = parseInt(S.overrideCliforNumero, 10);
     let { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
     let scelta = null;
-    if (!(override > 0) && S.fasciaClienteDalForm === true) {
+    if (!(override > 0)) {
       const form = await chiediClienteForm();
       scelta = clienteFascia(form, { id, customerdata });
       console.log(TAG, 'cliente per la fascia:', scelta.fonte, scelta.id,
@@ -644,7 +647,10 @@
     }
     // Anche senza cliente si chiama il bridge: se la sua flag e' spenta la
     // fascia non conta e il pricing va avanti (esitoConFonte).
-    const body = override > 0 ? { override_clifor_numero: override } : { customerdata };
+    // Versione e fonte del cliente viaggiano col body solo per il log del bridge
+    // (#63): da un 400 senza cliente si capisce quale estensione l'ha mandato.
+    const diagnosi = { ext_version: versioneEstensione(), fonte: override > 0 ? 'override' : scelta.fonte };
+    const body = override > 0 ? { override_clifor_numero: override, ...diagnosi } : { customerdata, ...diagnosi };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FASCIA_TIMEOUT_MS);
     try {
@@ -680,7 +686,7 @@
     } else if (f.stato === 'spento') {
       return '';
     } else {
-      span.className = S.fasciaClienteDalForm === true ? 'o' : 'r';
+      span.className = 'o';
       span.textContent = `● Fascia sconto non verificata (${f.motivo}): prezzi normali`;
     }
     let html = span.outerHTML + '<br>';
@@ -1062,7 +1068,7 @@
     return { id, customerdata: (id && clienti.get(id)) || null };
   }
 
-  // #59 (opzione fasciaClienteDalForm): da quale cliente si legge la fascia.
+  // #59: da quale cliente si legge la fascia (sempre, salvo override; #63).
   // form = risposta di injected.js (null se non e' arrivata); salvato = scelta
   // di scegliPreventivo (ultimo find/PATCH). Il form vince: e' il cliente che
   // l'operatore vede ora, anche se l'ha cambiato senza salvare.
@@ -1134,7 +1140,7 @@
       return { stato: 'normale', nome, listino: b.listino };
     }
     if (status === 400 && !haCliente) {
-      return { stato: 'sconosciuto', motivo: 'cliente del preventivo non ancora letto: salva il preventivo e rilancia' };
+      return { stato: 'sconosciuto', motivo: 'nessun cliente nel preventivo: sceglilo e rilancia il Pricing' };
     }
     if (status === 422) {
       return { stato: 'sconosciuto', motivo: b.ambiguous
