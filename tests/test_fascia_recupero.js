@@ -230,10 +230,11 @@ test('200 fascia normale → nessuna regola', () => {
 test('flag del server spenta → spento', () => {
   assert.strictEqual(esitoFascia(200, { attivo: false, recupero: false }, false).stato, 'spento');
 });
-test('400 senza cliente letto → sconosciuto, chiede di salvare', () => {
+test('400 senza cliente letto → sconosciuto, chiede di scegliere il cliente', () => {
   const e = esitoFascia(400, { error: 'customerdata' }, false);
   assert.strictEqual(e.stato, 'sconosciuto');
-  assert.ok(/salva il preventivo/.test(e.motivo));
+  assert.ok(/sceglilo e rilancia/.test(e.motivo));
+  assert.ok(!/salva/.test(e.motivo), "su un preventivo nuovo non si può salvare prima del Pricing (#63)");
 });
 test('400 con cliente mandato → errore (non «salva e rilancia»)', () => {
   assert.strictEqual(esitoFascia(400, { error: 'x' }, true).stato, 'errore');
@@ -251,7 +252,7 @@ test('401, 500, rete giù, corpo non JSON → errore, prezzi normali', () => {
   assert.strictEqual(esitoFascia(200, null, true).stato, 'errore');
 });
 
-// ── clienteFascia / esitoConFonte: cliente dal form (#59, opzione fasciaClienteDalForm) ──
+// ── clienteFascia / esitoConFonte: cliente dal form (#59) ──
 const GIMA_CD = { CustomerCode: '158', CustomerName: 'AUTOFFICINA GIMA SNC' };
 const ALTRO = { CustomerCode: '77', CustomerName: 'ALTRO SRL' };
 const REC_OK = { stato: 'recupero', nome: 'GIMA', listino: 1106, recupero: { soglia: 55, punti: 5 } };

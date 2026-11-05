@@ -164,7 +164,6 @@ non si tocca a mano). `importAttendeInVolo` si legge a ogni Pricing + Import (va
 | `importAttendeInVolo` | #47 (Pricing + Import aspetta i salvataggi in volo) | solo quiete di `bothSettleMs` dall'ultima scrittura |
 | `quoteOpenSoloOk` | #49 (preventivo aperto segnato solo su find 2xx) | preventivo aperto segnato all'invio della find, anche se poi fallisce |
 | `regBSottoCosto` | #34 (listino non sopra l'acquisto → Regola B) | Regola A col listino com'è: sconto 0 e vendita = listino, sotto costo |
-| `fasciaClienteDalForm` | #59 (fascia dal cliente scelto nel form, anche non salvato) | cliente solo da `find/<id>` e PATCH confermate, come prima |
 
 `injected.js` (mondo MAIN) non legge `chrome.storage`: posta sempre entrambi i segnali
 (`AR_QUOTE_OPEN` su 2xx e `AR_QUOTE_OPEN_INTENT` all'invio, `AR_QUOTE_SAVES`) e decide chi li
@@ -212,10 +211,10 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   dell'URL senza cliente. Il cliente di un preventivo visto su un'altra pagina non si
   prende mai. La forma di `find/<id>` viene dal bundle: la console logga
   `customerdata presente` o `ASSENTE (chiavi: …)`, da controllare dal vivo.
-- **Cliente scelto nel form (#59, interruttore `fasciaClienteDalForm`).** In un preventivo
+- **Cliente scelto nel form (#59, sempre attivo dalla v1.2.8, #63).** In un preventivo
   nuovo Qricambi crea il preventivo col cliente vuoto e la scelta del cliente nel form non
   fa chiamate finché non si salva, ma senza prezzi non si salva: col solo `find/<id>` il
-  cliente resta ignoto (400). Con l'interruttore acceso `leggiFascia` chiede il cliente a
+  cliente resta ignoto (400). Per questo `leggiFascia` chiede sempre il cliente a
   `injected.js` (`AR_FORM_CUSTOMER_REQ` → `AR_FORM_CUSTOMER`, 800 ms), che lo legge
   dall'unico componente Vue 2 `QuoteEdit` visibile, prop `quoteToEdit.customerdata`
   (verificato dal vivo il 03/11/2026). Decide `clienteFascia`: il cliente del form vince
@@ -225,22 +224,28 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   toast «Scegli prima il cliente» e ritorna con `error` (Pricing + Import non importa).
   Form non letto (Qricambi cambiato, più form, timeout) → come prima: cliente salvato con
   una riga nel toast che lo dice, o «cliente del preventivo non letto» e prezzi normali.
-  Override > 0: nessuna richiesta al form. Colore arancione e toast in primo piano solo
-  con l'interruttore acceso. Acceso di default dalla v1.2.7, dopo la verifica dal vivo
-  (03/11/2026) su un preventivo nuovo col cliente GIMA (1106) non salvato.
+  Override > 0: nessuna richiesta al form. Verificato dal vivo il 03/11/2026 su un
+  preventivo nuovo col cliente GIMA (1106) non salvato. Fino alla 1.2.7 c'era
+  l'interruttore `fasciaClienteDalForm`: tolto nella 1.2.8 (#63) perché un `false`
+  salvato nelle Opzioni con la 1.2.6, quando era il default, copriva il default
+  nuovo e lasciava il Pricing a chiedere di salvare un preventivo che senza prezzi
+  non si salva. Una chiave nuova di `DEFAULTS` che cambia il default di una vecchia
+  ha lo stesso problema: `chrome.storage.local.get(DEFAULTS)` riempie solo le chiavi
+  assenti. Il body di `fascia-cliente` porta anche `ext_version` e `fonte` (form,
+  formVuoto, salvataggio, nessuno, override) per il log del bridge.
 - **Nel dubbio, prezzi normali.** Solo `stato: 'recupero'` (risposta 200 con soglia e
   punti validi) porta la regola. Flag del bridge spenta → nessuna riga nel toast.
-  Cliente non letto (400: «salva il preventivo e rilancia»), non trovato o ambiguo
+  Cliente non letto (400: «cliente del preventivo non letto» o, senza fonte, «nessun cliente nel preventivo: sceglilo e rilancia il Pricing»), non trovato o ambiguo
   (422), errore, server giù o `X-API-Key` vuota nelle Opzioni (in quel caso nessuna
-  chiamata) → riga «Fascia sconto non verificata» (rossa; arancione con `fasciaClienteDalForm`)
-  e pricing normale. Con `fasciaClienteDalForm` il riquadro col toast visibile sale a
+  chiamata) → riga arancione «Fascia sconto non verificata»
+  e pricing normale. Il riquadro col toast visibile sale a
   `z-index` massimo (`.ar-toast-on`), sopra FAB e icone della pagina, e resta scuro (Vuetify di Qricambi colora `.success`/`.error` di verde/rosso con `!important`). In
   **Pricing + Import** invece l'import non parte: `bothBlockReason` pretende
   `res.fascia.stato` fra `recupero`, `normale` e `spento`, altrimenti alert col motivo. Fascia normale → riga «NOME · fascia L»; recupero → riga arancione con
   soglia, punti e righe toccate.
 - Test: `node tests/test_fascia_recupero.js` (regola, sweep, scelta del preventivo,
   ogni ramo della risposta, `clienteFascia`, `esitoConFonte`), `node tests/test_cliente_form.js`
-  (`clienteDalForm`), `node tests/test_leggi_fascia.js` (`leggiFascia` con l'opzione) e i casi `find/<id>` e `#59` di `tests/test_injected_confirm.js`.
+  (`clienteDalForm`), `node tests/test_leggi_fascia.js` (`leggiFascia`, anche col vecchio interruttore salvato a false) e i casi `find/<id>` e `#59` di `tests/test_injected_confirm.js`.
 
 ### Listino sotto l'acquisto e esito delle riscritture (#34)
 
