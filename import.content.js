@@ -137,6 +137,16 @@
       return;
     }
 
+    // Indirizzo del server valido? Prima di qualsiasi conferma o fetch (#68):
+    // vuoto, relativo o fuori dai permessi dell'estensione non deve partire.
+    const urlProblema = backendUrlProblem(cfg.backendUrl);
+    if (urlProblema) {
+      alert("Indirizzo del server non valido nelle Opzioni: " + urlProblema + ".");
+      chrome.runtime.openOptionsPage();
+      return;
+    }
+    cfg.backendUrl = String(cfg.backendUrl).trim();
+
     // Il payload e' quello del preventivo aperto? Se no, l'import chiederebbe di
     // portare in SIRJ un preventivo diverso da quello che l'utente ha davanti.
     const open = checkOpenQuote(payload.ID);

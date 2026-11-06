@@ -103,7 +103,28 @@ node tests/test_utile_colonna.js
 node tests/test_vendita_senza_input.js
 node tests/test_cliente_form.js
 node tests/test_leggi_fascia.js
+node tests/test_import_backend_url_guard.js
+node tests/test_log_senza_apikey.js
+node tests/test_manifest_privacy.js
 ```
+
+### Indirizzo del server valido o niente invio (#68)
+
+`backendUrlProblem(value)` (in `defaults.js`, unica copia) torna `null` se l'indirizzo è
+valido, altrimenti il motivo: vuoto, non assoluto, schema diverso da http/https, utente e
+password nell'URL, oppure host/porta fuori da `BACKEND_HOST_PATTERNS`, che ripete
+`manifest.json:host_permissions` (il test fallisce se le due liste divergono: aggiungendo un
+host se ne tocca uno solo → aggiorna entrambi). Due punti di applicazione:
+
+- `handleClick`, dopo il controllo di `apiKey` (chiave vuota = messaggio di prima, invariato)
+  e **prima** di qualsiasi conferma o `fetch`: alert «Indirizzo del server non valido nelle
+  Opzioni: <motivo>», `chrome.runtime.openOptionsPage()`, nessuna richiesta. Il payload
+  intercettato resta in storage: corretto l'indirizzo si riprova.
+- `options.js` (`validateAll`): un `backendUrl` non valido segna il campo in rosso col motivo e
+  il salvataggio si ferma senza scrivere in `chrome.storage.local`.
+
+Il payload inviato non cambia. Il bridge `fascia-cliente` di `pricing.content.js`
+(`urlFascia`) non usa ancora questo controllo. Test: `node tests/test_import_backend_url_guard.js`.
 
 ### Una azione alla volta: menu e shortcut (#28)
 
@@ -270,6 +291,15 @@ Se la colonna Vendita è mappata ma la cella non ha una casella, la riga non si 
 è contata «saltata» con il motivo `noVenditaInp` («Campo vendita assente» nel toast),
 prima di qualsiasi scrittura su listino/sconto (decisione di Fede 24/10/2026). Con Vendita
 non mappata la riga si prezza come prima. Test: `tests/test_vendita_senza_input.js`.
+
+### Vendita o sconto non confermati dopo la scrittura (#67)
+
+Se `setVueInput` sulla Vendita, o la riscrittura finale dello sconto, ritorna `false`, la
+riga è contata «saltata» con il motivo `venditaNonConfermata` («Vendita o sconto non
+confermati» nel toast), mai `ok`: `bothBlockReason` (fab.js) blocca l'import perché
+`skipped > 0` (decisione di Fede 06/11/2026). Le scritture già fatte entrano nello snapshot
+(ANNULLA le ripristina). La riscrittura sconto resta come rete di sicurezza. Test:
+`tests/test_vendita_senza_input.js`.
 
 ### setVueInput (in `pricing.content.js`)
 
