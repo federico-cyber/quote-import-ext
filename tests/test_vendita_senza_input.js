@@ -64,16 +64,16 @@ function riga({ vendita = 'input' } = {}) {
   return mkTr(td);
 }
 
-function esegui(righe, col = COL) {
+function esegui(righe, col = COL, fallisce = null) {
   const scritture = [];
   const ctx = vm.createContext({
     console: { log() {}, warn() {}, error() {} },
     setTimeout: () => 0,
-    TAG: '[test]', S: DEF, __scritture: scritture, __righe: righe,
+    TAG: '[test]', S: DEF, __scritture: scritture, __righe: righe, __fallisce: fallisce,
   });
   vm.runInContext(
     'let lastSnapshot = { entries: [] };\n' +
-    'async function setVueInput(input, value) { __scritture.push(input); input.value = String(value); return true; }\n' +
+    'async function setVueInput(input, value) { __scritture.push(input); if (__fallisce && __fallisce(input, value, __scritture)) return false; input.value = String(value); return true; }\n' +
     estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' +
     SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
     '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null, null);' +
@@ -133,6 +133,55 @@ async function test(name, fn) {
     assert.strictEqual(n, 2, `toast con noVenditaInp: ${n} su 2`);
     assert.ok(/skipReasons: \{[^}]*noVenditaInp: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
       'noVenditaInp assente dal ritorno a vuoto di esegui');
+  });
+
+  // #67: Vendita o riscrittura dello sconto non confermate -> riga saltata, import bloccato
+  // (fab.js bothBlockReason blocca con skipped > 0; vedi test_onboth_gating.js).
+  await test('#67 setVueInput(Vendita) = false: riga saltata con venditaNonConfermata, ok non incrementato', async () => {
+    const r = riga();
+    const { res, ctx } = await esegui([r], COL, (inp) => inp === r.td[3].inp);
+    assert.strictEqual(res.ok, 0, 'riga con vendita non confermata contata ok');
+    assert.strictEqual(res.skip, 1);
+    assert.strictEqual(res.tot, 1);
+    assert.strictEqual(res.skipReasons.venditaNonConfermata, 1);
+    assert.strictEqual(res.dettagli.length, 0);
+    assert.strictEqual(res.cambiate, 0);
+    assert.strictEqual(r.utile.textContent, '-', 'utile calcolato su una vendita non confermata');
+    assert.strictEqual(ctx.getSnap().entries.length, 1, 'riga scritta a meta fuori dallo snapshot di ANNULLA');
+  });
+
+  await test('#67 riscrittura sconto = false dopo la Vendita: riga saltata con venditaNonConfermata', async () => {
+    const r = riga();
+    // il 2o setVueInput sullo sconto (la riscrittura finale) fallisce
+    const { res } = await esegui([r], COL, (inp, v, scr) => inp === r.td[2].inp && scr.filter(x => x === inp).length === 2);
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skip, 1);
+    assert.strictEqual(res.skipReasons.venditaNonConfermata, 1);
+    assert.strictEqual(res.dettagli.length, 0);
+    assert.strictEqual(r.utile.textContent, '-');
+  });
+
+  await test('#67 mix: una riga confermata e una con vendita non confermata', async () => {
+    const buona = riga(), cattiva = riga();
+    const { res } = await esegui([buona, cattiva], COL, (inp) => inp === cattiva.td[3].inp);
+    assert.strictEqual(res.tot, 2);
+    assert.strictEqual(res.ok, 1);
+    assert.strictEqual(res.skip, 1);
+    assert.strictEqual(res.skipReasons.venditaNonConfermata, 1);
+  });
+
+  await test('#67 vendita e sconto confermati: invariato, venditaNonConfermata a 0', async () => {
+    const { res } = await esegui([riga()]);
+    assert.strictEqual(res.ok, 1);
+    assert.strictEqual(res.skip, 0);
+    assert.strictEqual(res.skipReasons.venditaNonConfermata || 0, 0);
+  });
+
+  await test('#67 motivo visibile nel riepilogo: toast con e senza righe ok, e default del ritorno a vuoto', async () => {
+    const n = SRC.split('res.skipReasons.venditaNonConfermata ? toastLine(').length - 1;
+    assert.strictEqual(n, 2, `toast con venditaNonConfermata: ${n} su 2`);
+    assert.ok(/skipReasons: \{[^}]*venditaNonConfermata: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
+      'venditaNonConfermata assente dal ritorno a vuoto di esegui');
   });
 
   if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }

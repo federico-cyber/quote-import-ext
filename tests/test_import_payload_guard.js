@@ -25,10 +25,10 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const idsFromHref = (() => {
-  const c = vm.createContext({});
+const { idsFromHref, backendUrlProblem } = (() => {
+  const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return vm.runInContext('idsFromHref', c);
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
 })();
 
 
@@ -62,7 +62,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
                          confirms = [true, true], extraStore = {} } = {}) {
   const store = {
     importHistory: [], fallbackCliforNumero: 5,
-    apiKey: 'k', backendUrl: 'http://bridge.invalid/import', overrideCliforNumero: 0,
+    apiKey: 'k', backendUrl: 'http://localhost:5008/api/quote-import', overrideCliforNumero: 0,
     ...extraStore,
   };
   if (stored) { store.lastPatchPayload = stored; store.lastPatchSeq = storedSeq; }
@@ -76,6 +76,8 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     console: { log() {} },
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
+    backendUrlProblem,
+    URL,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {
@@ -103,6 +105,8 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     },
     document: { createElement: fakeEl, body, addEventListener() {}, removeEventListener() {} },
     setTimeout: () => 0,
+    clearTimeout() {},
+    AbortController,
     location: { href },
   };
   ctx.addEventListener = (type, fn) => { if (type === 'message') listeners.push(fn); };
@@ -296,6 +300,32 @@ test('import 409 (gia importato): lastPatchPayload azzerato', async () => {
   const e = makeImportEnv({ responses: [{ status: 409, body: { sirj_numero: 7, sirj_anno: 2026 } }] });
   await e.click();
   assert.strictEqual(e.store.lastPatchPayload, undefined, 'payload ancora in storage dopo 409');
+});
+
+test('import 409 con status ok (vero duplicato): payload azzerato, storico dup, toast Già importato', async () => {
+  const e = makeImportEnv({ responses: [{ status: 409, body: { status: 'ok', sirj_numero: 7, sirj_anno: 2026 } }] });
+  await e.click();
+  assert.strictEqual(e.store.lastPatchPayload, undefined, 'payload ancora in storage dopo 409 ok');
+  assert.strictEqual(e.store.importHistory[0].status, 'dup');
+  const texts = e.ctx.document.body.children.map((c) => c.textContent);
+  assert.ok(texts.some((t) => t.includes('Già importato: PR3 7/2026')), 'manca il toast Già importato: ' + JSON.stringify(texts));
+});
+
+test('import 409 con status collision: payload CONSERVATO, storico collision, toast warn di collisione', async () => {
+  const e = makeImportEnv({ storedSeq: 3, responses: [{ status: 409, body: { status: 'collision', sirj_numero: 7, sirj_anno: 2026 } }] });
+  await e.click();
+  assert.ok(e.store.lastPatchPayload, 'payload azzerato su una collisione: il preventivo non e entrato in SIRJ');
+  assert.strictEqual(e.store.lastPatchSeq, 3, 'lastPatchSeq azzerato su una collisione');
+  assert.deepStrictEqual(e.removed, [], 'clearImportedPayload chiamato su una collisione');
+  assert.strictEqual(e.store.importHistory[0].status, 'collision');
+  assert.strictEqual(e.store.importHistory[0].sirjNumero, 7);
+  assert.strictEqual(e.store.importHistory[0].sirjAnno, 2026);
+  const toasts = e.ctx.document.body.children.filter((c) => (c.style.cssText || '').includes('top:20px'));
+  assert.ok(toasts.length >= 1, 'nessun toast');
+  assert.ok(toasts.every((t) => t.style.cssText.includes('#ef6c00')), 'toast non warn');
+  const texts = toasts.map((t) => t.textContent).join(' | ');
+  assert.ok(!texts.includes('Già importato'), 'su una collisione compare Già importato: ' + texts);
+  assert.ok(/collisione/i.test(texts) && texts.includes('7/2026'), 'manca avviso di collisione col numero: ' + texts);
 });
 
 test('import 422/500/rete o annullato: lastPatchPayload resta (si puo riprovare)', async () => {

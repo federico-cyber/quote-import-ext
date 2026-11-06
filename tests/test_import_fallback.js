@@ -20,10 +20,10 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const idsFromHref = (() => {
-  const c = vm.createContext({});
+const { idsFromHref, backendUrlProblem } = (() => {
+  const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return vm.runInContext('idsFromHref', c);
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
 })();
 
 
@@ -58,7 +58,7 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
     lastPatchPayload: PAYLOAD,
     importHistory: [],
     fallbackCliforNumero: 5,
-    apiKey: 'k', backendUrl: 'http://bridge.invalid/import',
+    apiKey: 'k', backendUrl: 'http://localhost:5008/api/quote-import',
     overrideCliforNumero,
   };
   const sent = [];
@@ -67,6 +67,8 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
     console: { log() {} },
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
+    backendUrlProblem,
+    URL,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {
@@ -95,6 +97,8 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
       addEventListener() {}, removeEventListener() {},
     },
     setTimeout: () => 0,
+    clearTimeout() {},
+    AbortController,
   };
   ctx.window = ctx;
   ctx.window.addEventListener = () => {};

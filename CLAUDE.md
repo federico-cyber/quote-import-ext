@@ -71,16 +71,17 @@ che l'utente ha davanti. Tre regole:
   solo se l'utente dice sì (scelta di Fede, #30). Se nessuna fonte dà un id
   ('unknown') non chiede nulla: resta la sola conferma d'import. Il formato dell'URL
   Qricambi e il `find/<id>` vengono dal bundle, **non** verificati su una pagina reale.
-- **Azzeramento.** Dopo un import 200 (non in collisione, #29) o 409 `lastPatchPayload`/`lastPatchSeq` vengono
-  rimossi (solo se in storage c'è ancora il payload importato). Dopo 422/500/errore di
-  rete, collisione di numerazione o import annullato restano, così si può riprovare.
+- **Azzeramento.** Dopo un import 200 (non in collisione, #29) o 409 duplicato (`status` diverso da `collision`: `ok`, `converted`, `expired` o assente)
+  `lastPatchPayload`/`lastPatchSeq` vengono rimossi (solo se in storage c'è ancora il payload importato).
+  Dopo 422/500/errore di rete, collisione di numerazione (200 con `collision: true` o 409 con `status`
+  `collision`, #69) o import annullato restano, così si può riprovare.
 
 ### Storage
 
 Tutto su `chrome.storage.local`:
 - parametri pricing + `backendUrl` + `apiKey` (config, gestita da `options.html`);
 - `lastPatchPayload` (ultimo payload intercettato da `injected.js`, **già confermato
-  da Qricambi**) + `lastPatchSeq` (suo ordine di invio); azzerati dopo import 200/409;
+  da Qricambi**) + `lastPatchSeq` (suo ordine di invio); azzerati dopo import 200/409 duplicato (non in collisione);
 - `importHistory` (array FIFO, cap 50 — vedi sotto).
 
 ## Test
@@ -102,7 +103,28 @@ node tests/test_utile_colonna.js
 node tests/test_vendita_senza_input.js
 node tests/test_cliente_form.js
 node tests/test_leggi_fascia.js
+node tests/test_import_backend_url_guard.js
+node tests/test_log_senza_apikey.js
+node tests/test_manifest_privacy.js
 ```
+
+### Indirizzo del server valido o niente invio (#68)
+
+`backendUrlProblem(value)` (in `defaults.js`, unica copia) torna `null` se l'indirizzo è
+valido, altrimenti il motivo: vuoto, non assoluto, schema diverso da http/https, utente e
+password nell'URL, oppure host/porta fuori da `BACKEND_HOST_PATTERNS`, che ripete
+`manifest.json:host_permissions` (il test fallisce se le due liste divergono: aggiungendo un
+host se ne tocca uno solo → aggiorna entrambi). Due punti di applicazione:
+
+- `handleClick`, dopo il controllo di `apiKey` (chiave vuota = messaggio di prima, invariato)
+  e **prima** di qualsiasi conferma o `fetch`: alert «Indirizzo del server non valido nelle
+  Opzioni: <motivo>», `chrome.runtime.openOptionsPage()`, nessuna richiesta. Il payload
+  intercettato resta in storage: corretto l'indirizzo si riprova.
+- `options.js` (`validateAll`): un `backendUrl` non valido segna il campo in rosso col motivo e
+  il salvataggio si ferma senza scrivere in `chrome.storage.local`.
+
+Il payload inviato non cambia. Il bridge `fascia-cliente` di `pricing.content.js`
+(`urlFascia`) non usa ancora questo controllo. Test: `node tests/test_import_backend_url_guard.js`.
 
 ### Una azione alla volta: menu e shortcut (#28)
 
@@ -270,6 +292,15 @@ Se la colonna Vendita è mappata ma la cella non ha una casella, la riga non si 
 prima di qualsiasi scrittura su listino/sconto (decisione di Fede 24/10/2026). Con Vendita
 non mappata la riga si prezza come prima. Test: `tests/test_vendita_senza_input.js`.
 
+### Vendita o sconto non confermati dopo la scrittura (#67)
+
+Se `setVueInput` sulla Vendita, o la riscrittura finale dello sconto, ritorna `false`, la
+riga è contata «saltata» con il motivo `venditaNonConfermata` («Vendita o sconto non
+confermati» nel toast), mai `ok`: `bothBlockReason` (fab.js) blocca l'import perché
+`skipped > 0` (decisione di Fede 06/11/2026). Le scritture già fatte entrano nello snapshot
+(ANNULLA le ripristina). La riscrittura sconto resta come rete di sicurezza. Test:
+`tests/test_vendita_senza_input.js`.
+
 ### setVueInput (in `pricing.content.js`)
 
 Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
@@ -284,10 +315,10 @@ Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
 | status | Quando | Avviso all'operatore |
 |---|---|---|
 | `ok` / `ok-fallback` | 200 (fallback = cliente generico/override) | modal verde col numero PR3; se `unmatched_articles` non è vuoto, riga arancione con i codici non agganciati |
-| `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) | toast `warn` + modal arancione, mai verde |
-| `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto) | toast `warn` + modal arancione col numero `sirj_numero/sirj_anno` da verificare in SIRJ, non ritentare alla cieca |
-| `dup` | 409 | toast `warn` |
-| `err` | 422 senza fallback, altri HTTP, errore di rete | toast `err` |
+| `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) oppure 409 con `status: "collision"` (#69) | toast `warn` (+ modal arancione sul 200), mai verde; payload conservato |
+| `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto); **oppure** (#65) nessuna risposta entro 60 s (POST abortita con `AbortController` in `postQuote`) o status ≥ 500 con corpo non JSON (502/504 di proxy) | toast `warn` + modal arancione «ESITO INCERTO» da verificare in SIRJ, non ritentare alla cieca (col numero `sirj_numero/sirj_anno` solo nel 503; nei casi #65 il numero non è noto: «PR3 da verificare»). Dopo l'abort la guardia `actionRunning` di `runAction` si rilascia e i pulsanti del FAB tornano disponibili senza reload |
+| `dup` | 409 con `status` `ok`, `converted`, `expired` o assente (vero duplicato) | toast `warn` «Già importato», payload azzerato |
+| `err` | 422 senza fallback, altri HTTP (anche 5xx con corpo JSON), errore di rete | toast `err` |
 
 Test dei rami: `node tests/test_import_response_branches.js` (esegue `import.content.js`
 e `popup.js` in `vm` con chrome/fetch/DOM finti).
