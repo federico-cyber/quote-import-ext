@@ -46,7 +46,7 @@ function loadSettings() {
 }
 
 function clearAllErrors() {
-  document.querySelectorAll('input[type="number"]').forEach(el => { el.style.borderColor = ''; });
+  document.querySelectorAll('input[type="number"], #backendUrl').forEach(el => { el.style.borderColor = ''; });
   document.querySelectorAll('.validation-error').forEach(el => el.remove());
 }
 
@@ -79,6 +79,9 @@ function validateAll() {
     showFieldError('reg-c-threshold', 'Soglia C deve essere < Soglia Cap A (' + capThresh + '%)');
     valid = false;
   }
+  // Indirizzo del server (#68): vuoto, relativo o fuori dai permessi non si salva.
+  const urlProblema = backendUrlProblem(document.getElementById('backendUrl').value);
+  if (urlProblema) { showFieldError('backendUrl', 'Indirizzo del server: ' + urlProblema); valid = false; }
   return valid;
 }
 

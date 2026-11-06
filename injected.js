@@ -6,7 +6,7 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.2.8]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.9]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
@@ -317,5 +317,10 @@
     return xhr;
   }
   PatchedXHR.prototype = OrigXHR.prototype;
+  // Le costanti sono proprieta' statiche del costruttore, non del prototype: senza
+  // questa copia XMLHttpRequest.DONE & co. risultano undefined sulla pagina.
+  ["UNSENT", "OPENED", "HEADERS_RECEIVED", "LOADING", "DONE"].forEach(function (k) {
+    PatchedXHR[k] = OrigXHR[k];
+  });
   window.XMLHttpRequest = PatchedXHR;
 })();

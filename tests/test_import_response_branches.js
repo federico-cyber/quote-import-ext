@@ -29,10 +29,10 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const idsFromHref = (() => {
-  const c = vm.createContext({});
+const { idsFromHref, backendUrlProblem } = (() => {
+  const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return vm.runInContext('idsFromHref', c);
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
 })();
 
 
@@ -101,7 +101,7 @@ function hangingFetch() {
 function setupImport(fetchImpl, sharedWindow) {
   const store = {
     lastPatchPayload: PAYLOAD, importHistory: [], fallbackCliforNumero: 5,
-    apiKey: 'k', backendUrl: 'http://bridge.invalid/import', overrideCliforNumero: 0,
+    apiKey: 'k', backendUrl: 'http://localhost:5008/api/quote-import', overrideCliforNumero: 0,
   };
   const body = fakeEl();
   const timers = makeTimers();
@@ -110,6 +110,8 @@ function setupImport(fetchImpl, sharedWindow) {
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
     AbortController,
+    backendUrlProblem,
+    URL,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {
@@ -183,6 +185,30 @@ const R200_OK = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno
     assert.ok(!r.css.includes(GREEN), 'il modal di collisione non deve essere verde');
     assert.ok(!r.texts.includes('IMPORTATO IN SIRJ'), 'titolo di successo su una collisione');
     assert.ok(r.texts.some((t) => t.includes('777/2026')), 'manca il numero PR3: ' + JSON.stringify(r.texts));
+  });
+
+  await test('409 + status collision -> storico "collision", toast warn di collisione, non "Già importato"', async () => {
+    const r = await runImport({ status: 409, body: { status: 'collision', sirj_numero: 777, sirj_anno: 2026 } });
+    assert.strictEqual(r.history.length, 1);
+    assert.strictEqual(r.history[0].status, 'collision');
+    assert.strictEqual(r.history[0].sirjNumero, 777);
+    assert.strictEqual(r.history[0].sirjAnno, 2026);
+    assert.ok(r.toasts.length >= 1, 'nessun toast');
+    assert.ok(r.toasts.every((t) => t.style.cssText.includes(ORANGE)), 'toast non warn');
+    const all = r.texts.join(' | ');
+    assert.ok(!all.includes('Già importato'), 'collisione presentata come duplicato: ' + all);
+    assert.ok(/collisione/i.test(all) && all.includes('777/2026'), 'manca avviso di collisione: ' + all);
+    assert.ok(!r.css.includes(GREEN), 'avviso verde su collisione');
+  });
+
+  await test('409 + status ok/converted/expired (o senza status) -> invariato: storico "dup", toast "Già importato"', async () => {
+    for (const body of [{ status: 'ok', sirj_numero: 5, sirj_anno: 2026 }, { sirj_numero: 5, sirj_anno: 2026 },
+                        { status: 'converted', sirj_numero: 5, sirj_anno: 2026 },
+                        { status: 'expired', sirj_numero: 5, sirj_anno: 2026 }]) {
+      const r = await runImport({ status: 409, body });
+      assert.strictEqual(r.history[0].status, 'dup', JSON.stringify(body));
+      assert.ok(r.texts.some((t) => t.includes('Già importato: PR3 5/2026')), JSON.stringify(r.texts));
+    }
   });
 
   await test('200 + unmatched_articles -> il modal segnala gli articoli non agganciati', async () => {
