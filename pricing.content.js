@@ -346,12 +346,14 @@
     const numVal = parseFloat(strVal.replace(',', '.'));
     const valToSet = isNaN(numVal) ? strVal : numVal;
 
-    // Helper per verificare se il valore è uguale (con tolleranza numerica)
+    // Helper per verificare se il valore è uguale. Numeri: centesimi interi
+    // (#66): 4,81 = 4.81 e 4.8 = 4.80, ma 0.02 != 0.03 (con < 0.01 un centesimo
+    // di scarto passava per "verificato" e il prezzo sbagliato finiva in PR3).
     const valuesEqual = (a, b) => {
       const numA = parseFloat(String(a).replace(',', '.'));
       const numB = parseFloat(String(b).replace(',', '.'));
       if (!isNaN(numA) && !isNaN(numB)) {
-        return Math.abs(numA - numB) < 0.01; // Tolleranza floating point
+        return Math.round(numA * 100) === Math.round(numB * 100);
       }
       return String(a).trim() === String(b).trim();
     };
@@ -585,7 +587,9 @@
           }
         }
         S = { ...DEFAULTS, ...cleanSettings };
-        console.log(TAG, 'Impostazioni caricate e validate:', S);
+        // La apiKey (X-API-Key del bridge) non va in console: F12 e' lo strumento di debug.
+        const { apiKey, ...senzaChiave } = S;
+        console.log(TAG, 'Impostazioni caricate e validate:', senzaChiave);
         resolve();
       });
     });

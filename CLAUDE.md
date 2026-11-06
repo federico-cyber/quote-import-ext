@@ -103,6 +103,8 @@ node tests/test_vendita_senza_input.js
 node tests/test_cliente_form.js
 node tests/test_leggi_fascia.js
 node tests/test_import_backend_url_guard.js
+node tests/test_log_senza_apikey.js
+node tests/test_manifest_privacy.js
 ```
 
 ### Indirizzo del server valido o niente invio (#68)

@@ -317,5 +317,10 @@
     return xhr;
   }
   PatchedXHR.prototype = OrigXHR.prototype;
+  // Le costanti sono proprieta' statiche del costruttore, non del prototype: senza
+  // questa copia XMLHttpRequest.DONE & co. risultano undefined sulla pagina.
+  ["UNSENT", "OPENED", "HEADERS_RECEIVED", "LOADING", "DONE"].forEach(function (k) {
+    PatchedXHR[k] = OrigXHR[k];
+  });
   window.XMLHttpRequest = PatchedXHR;
 })();
