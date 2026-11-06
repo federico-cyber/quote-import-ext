@@ -119,6 +119,9 @@
     } catch (e) { console.log(TAG, "clear lastPatchPayload fallito:", e.message); }
   }
 
+  // Tempo massimo del POST di import verso il bridge (#65).
+  const IMPORT_TIMEOUT_MS = 60000;
+
   async function handleClick() {
     const stored = await new Promise((resolve) =>
       chrome.storage.local.get(["lastPatchPayload", "lastPatchSeq"], resolve));
@@ -189,13 +192,56 @@
       total: payload.total || 0,
     };
 
+    // POST al bridge con timeout (#65). Senza, un proxy che non risponde lascia
+    // l'import appeso per sempre: la guardia di runAction (fab.js) non si rilascia
+    // e i pulsanti restano disabilitati fino al reload. Allo scadere la richiesta
+    // viene abortita: fetch rifiuta con AbortError (gestito nel catch come esito
+    // incerto, il bridge potrebbe aver gia' scritto il PR3).
+    // Ritorna { res, body, incerto }: incerto = true se status >= 500 e il corpo
+    // non e' JSON (502/504 di proxy): l'esito sul bridge non e' noto.
     async function postQuote(body) {
-      const res = await fetch(cfg.backendUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": cfg.apiKey },
-        body: JSON.stringify(body),
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), IMPORT_TIMEOUT_MS);
+      try {
+        const res = await fetch(cfg.backendUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-API-Key": cfg.apiKey },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        try {
+          return { res, body: await res.json(), incerto: false };
+        } catch (parseErr) {
+          // l'abort scattato durante la lettura del corpo resta un abort
+          if (parseErr && parseErr.name === "AbortError") throw parseErr;
+          if (res.status >= 500) return { res, body: {}, incerto: true };
+          throw parseErr;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // Esito incerto da timeout o da 5xx illeggibile (#65): il PR3 potrebbe essere
+    // stato scritto. Stesso trattamento del 503 con esito_incerto (#29) ma senza
+    // numero PR3 noto: storico 'esito-incerto', toast warn, modal arancione.
+    async function segnalaEsitoIncerto(motivo) {
+      const msg = `Esito incerto: ${motivo}. Verifica in SIRJ se esiste un PR3 ` +
+        `per questo preventivo prima di riprovare.`;
+      await appendToHistory({ ...baseRecord, status: "esito-incerto",
+        sirjNumero: null, sirjAnno: null, error: msg });
+      toast(msg, "warn");
+      resultModal({
+        tone: "warn",
+        title: "ESITO INCERTO",
+        numero: null,
+        anno: null,
+        customer: baseRecord.customer,
+        car: baseRecord.car,
+        notes: [motivo[0].toUpperCase() + motivo.slice(1) + ".",
+                "Verifica in SIRJ prima di riprovare: " +
+                "reimportare alla cieca può creare un secondo PR3."],
       });
-      return { res, body: await res.json() };
     }
 
     // Se è configurato un override manuale, lo aggiungiamo al payload prima del primo POST.
@@ -209,7 +255,7 @@
     let fallbackUsed = false;
 
     try {
-      let { res, body } = await postQuote(initialPayload);
+      let { res, body, incerto } = await postQuote(initialPayload);
 
       // Cliente non trovato → offri fallback su cliente generico SIRJ #5
       // (questo ramo scatta solo se manualOverride = 0, altrimenti il 422 è un errore reale)
@@ -221,7 +267,7 @@
         );
         if (retry) {
           fallbackUsed = true;
-          ({ res, body } = await postQuote({
+          ({ res, body, incerto } = await postQuote({
             ...payload,
             override_clifor_numero: FALLBACK_CLIFOR_NUMERO,
           }));
@@ -233,7 +279,9 @@
         }
       }
 
-      if (res.status === 200) {
+      if (incerto) {
+        await segnalaEsitoIncerto(`il bridge ha risposto ${res.status} con un corpo illeggibile`);
+      } else if (res.status === 200) {
         const usedOverride = manualOverride > 0 ? manualOverride :
           (fallbackUsed || payload.override_clifor_numero !== undefined
             ? FALLBACK_CLIFOR_NUMERO : 0);
@@ -327,6 +375,11 @@
         toast(`Errore ${res.status}: ${body.error || res.statusText}`, "err");
       }
     } catch (e) {
+      if (e && e.name === "AbortError") {
+        await segnalaEsitoIncerto(
+          `nessuna risposta dal bridge entro ${Math.round(IMPORT_TIMEOUT_MS / 1000)} s`);
+        return;
+      }
       await appendToHistory({ ...baseRecord, status: "err",
         sirjNumero: null, sirjAnno: null, error: e.message });
       toast(`Errore rete: ${e.message}`, "err");

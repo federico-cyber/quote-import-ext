@@ -316,9 +316,9 @@ Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
 |---|---|---|
 | `ok` / `ok-fallback` | 200 (fallback = cliente generico/override) | modal verde col numero PR3; se `unmatched_articles` non è vuoto, riga arancione con i codici non agganciati |
 | `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) oppure 409 con `status: "collision"` (#69) | toast `warn` (+ modal arancione sul 200), mai verde; payload conservato |
-| `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto) | toast `warn` + modal arancione col numero `sirj_numero/sirj_anno` da verificare in SIRJ, non ritentare alla cieca |
+| `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto); **oppure** (#65) nessuna risposta entro 60 s (POST abortita con `AbortController` in `postQuote`) o status ≥ 500 con corpo non JSON (502/504 di proxy) | toast `warn` + modal arancione «ESITO INCERTO» da verificare in SIRJ, non ritentare alla cieca (col numero `sirj_numero/sirj_anno` solo nel 503; nei casi #65 il numero non è noto: «PR3 da verificare»). Dopo l'abort la guardia `actionRunning` di `runAction` si rilascia e i pulsanti del FAB tornano disponibili senza reload |
 | `dup` | 409 con `status` `ok`, `converted`, `expired` o assente (vero duplicato) | toast `warn` «Già importato», payload azzerato |
-| `err` | 422 senza fallback, altri HTTP, errore di rete | toast `err` |
+| `err` | 422 senza fallback, altri HTTP (anche 5xx con corpo JSON), errore di rete | toast `err` |
 
 Test dei rami: `node tests/test_import_response_branches.js` (esegue `import.content.js`
 e `popup.js` in `vm` con chrome/fetch/DOM finti).

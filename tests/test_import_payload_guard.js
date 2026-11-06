@@ -105,6 +105,8 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     },
     document: { createElement: fakeEl, body, addEventListener() {}, removeEventListener() {} },
     setTimeout: () => 0,
+    clearTimeout() {},
+    AbortController,
     location: { href },
   };
   ctx.addEventListener = (type, fn) => { if (type === 'message') listeners.push(fn); };

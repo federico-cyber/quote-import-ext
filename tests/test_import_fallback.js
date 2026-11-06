@@ -97,6 +97,8 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
       addEventListener() {}, removeEventListener() {},
     },
     setTimeout: () => 0,
+    clearTimeout() {},
+    AbortController,
   };
   ctx.window = ctx;
   ctx.window.addEventListener = () => {};
