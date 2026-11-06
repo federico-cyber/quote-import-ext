@@ -102,6 +102,8 @@ node tests/test_utile_colonna.js
 node tests/test_vendita_senza_input.js
 node tests/test_cliente_form.js
 node tests/test_leggi_fascia.js
+node tests/test_log_senza_apikey.js
+node tests/test_manifest_privacy.js
 ```
 
 ### Una azione alla volta: menu e shortcut (#28)
