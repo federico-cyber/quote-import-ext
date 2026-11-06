@@ -270,10 +270,11 @@
           });
         }
       } else if (res.status === 409) {
-        // 409 = numero PR3 gia' presente. Solo con status 'ok' (o senza status) e'
-        // un vero duplicato; con 'collision' (o altro) il preventivo puo' mancare
-        // in SIRJ: avviso, storico 'collision', payload conservato per riprovare (#69).
-        const dupStatus = body.status === undefined || body.status === null || body.status === "ok";
+        // 409 = preventivo gia' registrato dal bridge, che rimanda lo status salvato
+        // (ok, converted, expired, collision). Solo 'collision' vuol dire che il
+        // preventivo puo' mancare in SIRJ: avviso, storico 'collision', payload
+        // conservato per riprovare (#69). Tutti gli altri sono veri duplicati.
+        const dupStatus = body.status !== "collision";
         if (dupStatus) {
           await appendToHistory({ ...baseRecord, status: "dup",
             sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });

@@ -136,8 +136,10 @@ const R200_OK = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno
     assert.ok(!r.css.includes(GREEN), 'avviso verde su collisione');
   });
 
-  await test('409 + status ok (o senza status) -> invariato: storico "dup", toast "Già importato"', async () => {
-    for (const body of [{ status: 'ok', sirj_numero: 5, sirj_anno: 2026 }, { sirj_numero: 5, sirj_anno: 2026 }]) {
+  await test('409 + status ok/converted/expired (o senza status) -> invariato: storico "dup", toast "Già importato"', async () => {
+    for (const body of [{ status: 'ok', sirj_numero: 5, sirj_anno: 2026 }, { sirj_numero: 5, sirj_anno: 2026 },
+                        { status: 'converted', sirj_numero: 5, sirj_anno: 2026 },
+                        { status: 'expired', sirj_numero: 5, sirj_anno: 2026 }]) {
       const r = await runImport({ status: 409, body });
       assert.strictEqual(r.history[0].status, 'dup', JSON.stringify(body));
       assert.ok(r.texts.some((t) => t.includes('Già importato: PR3 5/2026')), JSON.stringify(r.texts));

@@ -71,10 +71,10 @@ che l'utente ha davanti. Tre regole:
   solo se l'utente dice sì (scelta di Fede, #30). Se nessuna fonte dà un id
   ('unknown') non chiede nulla: resta la sola conferma d'import. Il formato dell'URL
   Qricambi e il `find/<id>` vengono dal bundle, **non** verificati su una pagina reale.
-- **Azzeramento.** Dopo un import 200 (non in collisione, #29) o 409 duplicato (`status` `ok` o assente)
+- **Azzeramento.** Dopo un import 200 (non in collisione, #29) o 409 duplicato (`status` diverso da `collision`: `ok`, `converted`, `expired` o assente)
   `lastPatchPayload`/`lastPatchSeq` vengono rimossi (solo se in storage c'è ancora il payload importato).
   Dopo 422/500/errore di rete, collisione di numerazione (200 con `collision: true` o 409 con `status`
-  diverso da `ok`, #69) o import annullato restano, così si può riprovare.
+  `collision`, #69) o import annullato restano, così si può riprovare.
 
 ### Storage
 
@@ -285,9 +285,9 @@ Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
 | status | Quando | Avviso all'operatore |
 |---|---|---|
 | `ok` / `ok-fallback` | 200 (fallback = cliente generico/override) | modal verde col numero PR3; se `unmatched_articles` non è vuoto, riga arancione con i codici non agganciati |
-| `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) oppure 409 con `status` diverso da `ok` (#69) | toast `warn` (+ modal arancione sul 200), mai verde; payload conservato |
+| `collision` | 200 con `collision: true` (il numero PR3 è stato poi occupato da un altro documento) oppure 409 con `status: "collision"` (#69) | toast `warn` (+ modal arancione sul 200), mai verde; payload conservato |
 | `esito-incerto` | 503 con `esito_incerto: true` (commit a esito incerto, PR3 forse scritto) | toast `warn` + modal arancione col numero `sirj_numero/sirj_anno` da verificare in SIRJ, non ritentare alla cieca |
-| `dup` | 409 con `status: "ok"` o senza `status` (vero duplicato) | toast `warn` «Già importato», payload azzerato |
+| `dup` | 409 con `status` `ok`, `converted`, `expired` o assente (vero duplicato) | toast `warn` «Già importato», payload azzerato |
 | `err` | 422 senza fallback, altri HTTP, errore di rete | toast `err` |
 
 Test dei rami: `node tests/test_import_response_branches.js` (esegue `import.content.js`
