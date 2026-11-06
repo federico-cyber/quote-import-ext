@@ -587,7 +587,9 @@
           }
         }
         S = { ...DEFAULTS, ...cleanSettings };
-        console.log(TAG, 'Impostazioni caricate e validate:', S);
+        // La apiKey (X-API-Key del bridge) non va in console: F12 e' lo strumento di debug.
+        const { apiKey, ...senzaChiave } = S;
+        console.log(TAG, 'Impostazioni caricate e validate:', senzaChiave);
         resolve();
       });
     });
