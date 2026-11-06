@@ -102,7 +102,26 @@ node tests/test_utile_colonna.js
 node tests/test_vendita_senza_input.js
 node tests/test_cliente_form.js
 node tests/test_leggi_fascia.js
+node tests/test_import_backend_url_guard.js
 ```
+
+### Indirizzo del server valido o niente invio (#68)
+
+`backendUrlProblem(value)` (in `defaults.js`, unica copia) torna `null` se l'indirizzo è
+valido, altrimenti il motivo: vuoto, non assoluto, schema diverso da http/https, utente e
+password nell'URL, oppure host/porta fuori da `BACKEND_HOST_PATTERNS`, che ripete
+`manifest.json:host_permissions` (il test fallisce se le due liste divergono: aggiungendo un
+host se ne tocca uno solo → aggiorna entrambi). Due punti di applicazione:
+
+- `handleClick`, dopo il controllo di `apiKey` (chiave vuota = messaggio di prima, invariato)
+  e **prima** di qualsiasi conferma o `fetch`: alert «Indirizzo del server non valido nelle
+  Opzioni: <motivo>», `chrome.runtime.openOptionsPage()`, nessuna richiesta. Il payload
+  intercettato resta in storage: corretto l'indirizzo si riprova.
+- `options.js` (`validateAll`): un `backendUrl` non valido segna il campo in rosso col motivo e
+  il salvataggio si ferma senza scrivere in `chrome.storage.local`.
+
+Il payload inviato non cambia. Il bridge `fascia-cliente` di `pricing.content.js`
+(`urlFascia`) non usa ancora questo controllo. Test: `node tests/test_import_backend_url_guard.js`.
 
 ### Una azione alla volta: menu e shortcut (#28)
 

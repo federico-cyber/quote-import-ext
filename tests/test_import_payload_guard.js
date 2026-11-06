@@ -25,10 +25,10 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const idsFromHref = (() => {
-  const c = vm.createContext({});
+const { idsFromHref, backendUrlProblem } = (() => {
+  const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return vm.runInContext('idsFromHref', c);
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
 })();
 
 
@@ -62,7 +62,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
                          confirms = [true, true], extraStore = {} } = {}) {
   const store = {
     importHistory: [], fallbackCliforNumero: 5,
-    apiKey: 'k', backendUrl: 'http://bridge.invalid/import', overrideCliforNumero: 0,
+    apiKey: 'k', backendUrl: 'http://localhost:5008/api/quote-import', overrideCliforNumero: 0,
     ...extraStore,
   };
   if (stored) { store.lastPatchPayload = stored; store.lastPatchSeq = storedSeq; }
@@ -76,6 +76,8 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     console: { log() {} },
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
+    backendUrlProblem,
+    URL,
     chrome: {
       runtime: { openOptionsPage() {} },
       storage: { local: {
