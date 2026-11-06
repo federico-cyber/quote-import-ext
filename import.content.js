@@ -280,10 +280,24 @@
           });
         }
       } else if (res.status === 409) {
-        await appendToHistory({ ...baseRecord, status: "dup",
-          sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
-        await clearImportedPayload(importedSeq);
-        toast(`Già importato: PR3 ${body.sirj_numero}/${body.sirj_anno}`, "warn");
+        // 409 = preventivo gia' registrato dal bridge, che rimanda lo status salvato
+        // (ok, converted, expired, collision). Solo 'collision' vuol dire che il
+        // preventivo puo' mancare in SIRJ: avviso, storico 'collision', payload
+        // conservato per riprovare (#69). Tutti gli altri sono veri duplicati.
+        const dupStatus = body.status !== "collision";
+        if (dupStatus) {
+          await appendToHistory({ ...baseRecord, status: "dup",
+            sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: null });
+          await clearImportedPayload(importedSeq);
+          toast(`Già importato: PR3 ${body.sirj_numero}/${body.sirj_anno}`, "warn");
+        } else {
+          const msg = `Collisione numerazione: il PR3 ${body.sirj_numero}/${body.sirj_anno} ` +
+            `risulta occupato da un altro documento. Il preventivo potrebbe non essere in SIRJ: ` +
+            `controlla prima di reimportare (i dati restano per riprovare).`;
+          await appendToHistory({ ...baseRecord, status: "collision",
+            sirjNumero: body.sirj_numero, sirjAnno: body.sirj_anno, error: msg });
+          toast(msg, "warn");
+        }
       } else if (res.status === 422) {
         await appendToHistory({ ...baseRecord, status: "err",
           sirjNumero: null, sirjAnno: null, error: body.error || "Errore 422" });
