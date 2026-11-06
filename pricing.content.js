@@ -481,7 +481,11 @@
       return null;
     }
 
-    const ths = Array.from(headerRow.querySelectorAll('th, td'));
+    // La colonna UTILE e' nostra (injectUtileColumn), non della tabella Qricambi: indici e
+    // offset la ignorano, cosi' le colonne non slittano se Vue ridisegna thead o body senza
+    // UTILE al secondo «Applica Pricing» (#70).
+    const ths = Array.from(headerRow.querySelectorAll('th, td'))
+      .filter(th => th.id !== 'ar-col-utile');
     console.log(TAG, 'Header th texts:',
       ths.map(th => `"${th.textContent.trim()}"`)
     );
@@ -507,7 +511,8 @@
 
     const firstBodyRow = table.querySelector('tbody tr');
     if (firstBodyRow) {
-      const bodyTdCount = firstBodyRow.querySelectorAll('td').length;
+      const bodyTdCount = Array.from(firstBodyRow.querySelectorAll('td'))
+        .filter(td => !(td.className || '').split(/\s+/).includes('ar-utile-cell')).length;
       const headerThCount = ths.length;
       const offset = bodyTdCount - headerThCount;
 

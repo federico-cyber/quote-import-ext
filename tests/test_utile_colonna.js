@@ -127,3 +127,53 @@ test('riga corta (colspan, nessun dato): il td UTILE finisce in coda come prima'
   injectUtileColumn(t.table, mappaColonne(t.table));
   assert.equal(corta.children[1].className, 'ar-utile-cell');
 });
+
+// ── Issue #70: la colonna UTILE e' nostra, non della tabella Qricambi ──
+// Se Vue ridisegna solo una parte della tabella (thead senza UTILE e body con le celle UTILE
+// ancora dentro, o il contrario: prima riga del body ricreata senza UTILE) il conteggio th/td
+// non torna e mappaColonne slittava di una posizione. Il calcolo deve ignorare th#ar-col-utile
+// e td.ar-utile-cell: stessi indici con o senza UTILE.
+function attesi(extraSinistra) {
+  const o = extraSinistra ? 1 : 0;
+  return { descrizione: o, acquisto: o + 1, listino: o + 2, sconto: o + 3, vendita: o + 4 };
+}
+
+function rimuoviUtileDalHeader(t) {
+  const th = t.trH.children.find(c => c.id === 'ar-col-utile');
+  t.trH.children.splice(t.trH.children.indexOf(th), 1);
+}
+
+function rimuoviUtileDallaPrimaRiga(t) {
+  const tr = t.table.querySelector('tbody tr');
+  const td = tr.children.find(c => c.className === 'ar-utile-cell');
+  tr.children.splice(tr.children.indexOf(td), 1);
+}
+
+for (const extraSinistra of [false, true]) {
+  const etichetta = extraSinistra ? 'con bottone X senza th (offset 1)' : 'senza offset';
+
+  test(`#70 ${etichetta}: prima riga del body ricreata senza UTILE, indici invariati`, () => {
+    const t = costruisciTabella({ extraSinistra });
+    const { mappaColonne, injectUtileColumn } = caricaFunzioni(t.doc);
+    const prima = mappaColonne(t.table);
+    injectUtileColumn(t.table, prima);
+    rimuoviUtileDallaPrimaRiga(t); // il th UTILE c'e', la prima riga del body no
+    assert.deepEqual(mappaColonne(t.table), attesi(extraSinistra));
+  });
+
+  test(`#70 ${etichetta}: thead ricreato senza UTILE ma body con celle UTILE, indici invariati`, () => {
+    const t = costruisciTabella({ extraSinistra });
+    const { mappaColonne, injectUtileColumn } = caricaFunzioni(t.doc);
+    injectUtileColumn(t.table, mappaColonne(t.table));
+    rimuoviUtileDalHeader(t); // le td UTILE restano, il th no
+    assert.deepEqual(mappaColonne(t.table), attesi(extraSinistra));
+  });
+
+  test(`#70 ${etichetta}: UTILE gia' presente in header e body, comportamento invariato`, () => {
+    const t = costruisciTabella({ extraSinistra });
+    const { mappaColonne, injectUtileColumn } = caricaFunzioni(t.doc);
+    injectUtileColumn(t.table, mappaColonne(t.table));
+    assert.deepEqual(mappaColonne(t.table), attesi(extraSinistra));
+    verificaAllineamento(t, extraSinistra);
+  });
+}
