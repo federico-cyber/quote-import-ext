@@ -51,6 +51,40 @@ const DEFAULTS = {
   // lasciava il Pricing a chiedere di salvare un preventivo che non si salva.
 };
 
+// Indirizzi a cui l'estensione puo' inviare: gli stessi di manifest.json:host_permissions
+// (tests/test_import_backend_url_guard.js verifica che coincidano). Un backendUrl fuori
+// da questi non arriva mai a fetch (#68): Chrome lo bloccherebbe comunque, ma con un
+// errore di rete opaco invece che con il motivo.
+const BACKEND_HOST_PATTERNS = [
+  "*://*.qricambi.com/*",
+  "http://100.86.223.69:5008/*",
+  "http://192.168.1.41:5008/*",
+  "http://localhost:5008/*",
+];
+
+// null se `value` e' un indirizzo valido per il backend, altrimenti il motivo (stringa).
+// Unica copia, usata dall'import (handleClick) e dalle Opzioni (salvataggio).
+function backendUrlProblem(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "l'indirizzo e' vuoto";
+  let u;
+  try { u = new URL(raw); } catch (e) { return "non e' un indirizzo completo (serve http://host:porta/percorso)"; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return "deve iniziare con http:// o https://";
+  if (u.username || u.password) return "non deve contenere utente e password";
+  const port = u.port || (u.protocol === "https:" ? "443" : "80");
+  const ammesso = BACKEND_HOST_PATTERNS.some((pat) => {
+    const m = /^(\*|https?):\/\/([^\/:]+)(?::(\d+))?\/\*$/.exec(pat);
+    if (!m) return false;
+    const [, schema, host, pPort] = m;
+    if (schema !== "*" && schema + ":" !== u.protocol) return false;
+    if (pPort && pPort !== port) return false;
+    return host.startsWith("*.")
+      ? (u.hostname === host.slice(2) || u.hostname.endsWith(host.slice(1)))
+      : u.hostname === host;
+  });
+  return ammesso ? null : "indirizzo non ammesso (" + u.protocol + "//" + u.host + "): ammessi solo quelli dei permessi dell'estensione";
+}
+
 // Numeri a 4+ cifre nell'URL (path, query, hash): candidati ID del preventivo
 // aperto. Il formato esatto dell'URL Qricambi non e' documentato: se non c'e'
 // nessun candidato l'URL non dice nulla. Unica copia, usata dall'import

@@ -41,6 +41,11 @@ function makeSandbox({ fetchImpl }) {
   const ctl = { sendThrows: false }; // test: send() che lancia in modo sincrono
 
   class FakeXHR {
+    static UNSENT = 0;
+    static OPENED = 1;
+    static HEADERS_RECEIVED = 2;
+    static LOADING = 3;
+    static DONE = 4;
     constructor() {
       this._listeners = {};
       this.status = 0;
@@ -131,6 +136,17 @@ test('#59 messaggi da altre finestre o di altro tipo → nessuna risposta', () =
     s.win._receive(null);
   });
   assert.strictEqual(s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER').length, 0);
+});
+
+// ── #71: PatchedXHR conserva le costanti statiche di XMLHttpRequest ──────
+test('#71 XMLHttpRequest sostituito espone UNSENT/OPENED/HEADERS_RECEIVED/LOADING/DONE', () => {
+  const s = makeSandbox({ fetchImpl: async () => ({}) });
+  const X = s.win.XMLHttpRequest;
+  assert.strictEqual(X.UNSENT, 0);
+  assert.strictEqual(X.OPENED, 1);
+  assert.strictEqual(X.HEADERS_RECEIVED, 2);
+  assert.strictEqual(X.LOADING, 3);
+  assert.strictEqual(X.DONE, 4);
 });
 
 // ── A. fetch: PATCH rifiutata dal server → NIENTE postMessage ────────────
