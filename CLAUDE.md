@@ -291,6 +291,15 @@ Se la colonna Vendita è mappata ma la cella non ha una casella, la riga non si 
 prima di qualsiasi scrittura su listino/sconto (decisione di Fede 24/10/2026). Con Vendita
 non mappata la riga si prezza come prima. Test: `tests/test_vendita_senza_input.js`.
 
+### Vendita o sconto non confermati dopo la scrittura (#67)
+
+Se `setVueInput` sulla Vendita, o la riscrittura finale dello sconto, ritorna `false`, la
+riga è contata «saltata» con il motivo `venditaNonConfermata` («Vendita o sconto non
+confermati» nel toast), mai `ok`: `bothBlockReason` (fab.js) blocca l'import perché
+`skipped > 0` (decisione di Fede 06/11/2026). Le scritture già fatte entrano nello snapshot
+(ANNULLA le ripristina). La riscrittura sconto resta come rete di sicurezza. Test:
+`tests/test_vendita_senza_input.js`.
+
 ### setVueInput (in `pricing.content.js`)
 
 Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli

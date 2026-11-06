@@ -738,6 +738,7 @@
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
+          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -759,6 +760,7 @@
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
+          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -878,7 +880,7 @@
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
     const col = mappaColonne(table);
-    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
+    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
 
     // Inietta colonna Utile se non esiste
     injectUtileColumn(table, col);
@@ -1181,7 +1183,7 @@
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
@@ -1255,12 +1257,22 @@
       if (successo) {
         // Aggiorna Vendita se possibile (venditaInp già risolto sopra)
         if (venditaInp) {
-          await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
+          const venditaOk = await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
           // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita; con il
           // listino ritoccato (#24) la vendita è esatta e lo sconto resta intero.
           // La riscrittura finale resta come rete di sicurezza.
-          if (!await setVueInput(scontoInp, scontoCliente)) {
+          const scontoOk = await setVueInput(scontoInp, scontoCliente);
+          if (!scontoOk) {
             console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
+          }
+          // #67: vendita o sconto non confermati = riga saltata (non ok), cosi'
+          // fab.js bothBlockReason blocca l'import (skipped > 0). Le scritture gia'
+          // fatte entrano nello snapshot: ANNULLA le puo' ripristinare.
+          if (!venditaOk || !scontoOk) {
+            console.warn(TAG, `Riga ${ri}: vendita ${prezzoClienteTarget.toFixed(2)} o sconto non confermati, riga saltata`);
+            skip++; skipReasons.venditaNonConfermata++;
+            lastSnapshot.entries.push({ tr, fields: snapFields });
+            continue;
           }
         }
 
