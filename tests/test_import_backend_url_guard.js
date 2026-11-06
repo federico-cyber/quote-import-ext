@@ -78,6 +78,8 @@ function makeImportEnv({ backendUrl = VALIDO, apiKey = 'k' } = {}) {
     idsFromHref,
     backendUrlProblem,
     URL,
+    AbortController,
+    clearTimeout() {},
     chrome: {
       runtime: { openOptionsPage() { calls.openOptionsPage++; } },
       storage: { local: {
