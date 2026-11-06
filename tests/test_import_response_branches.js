@@ -122,6 +122,28 @@ const R200_OK = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno
     assert.ok(r.texts.some((t) => t.includes('777/2026')), 'manca il numero PR3: ' + JSON.stringify(r.texts));
   });
 
+  await test('409 + status collision -> storico "collision", toast warn di collisione, non "Già importato"', async () => {
+    const r = await runImport({ status: 409, body: { status: 'collision', sirj_numero: 777, sirj_anno: 2026 } });
+    assert.strictEqual(r.history.length, 1);
+    assert.strictEqual(r.history[0].status, 'collision');
+    assert.strictEqual(r.history[0].sirjNumero, 777);
+    assert.strictEqual(r.history[0].sirjAnno, 2026);
+    assert.ok(r.toasts.length >= 1, 'nessun toast');
+    assert.ok(r.toasts.every((t) => t.style.cssText.includes(ORANGE)), 'toast non warn');
+    const all = r.texts.join(' | ');
+    assert.ok(!all.includes('Già importato'), 'collisione presentata come duplicato: ' + all);
+    assert.ok(/collisione/i.test(all) && all.includes('777/2026'), 'manca avviso di collisione: ' + all);
+    assert.ok(!r.css.includes(GREEN), 'avviso verde su collisione');
+  });
+
+  await test('409 + status ok (o senza status) -> invariato: storico "dup", toast "Già importato"', async () => {
+    for (const body of [{ status: 'ok', sirj_numero: 5, sirj_anno: 2026 }, { sirj_numero: 5, sirj_anno: 2026 }]) {
+      const r = await runImport({ status: 409, body });
+      assert.strictEqual(r.history[0].status, 'dup', JSON.stringify(body));
+      assert.ok(r.texts.some((t) => t.includes('Già importato: PR3 5/2026')), JSON.stringify(r.texts));
+    }
+  });
+
   await test('200 + unmatched_articles -> il modal segnala gli articoli non agganciati', async () => {
     const r = await runImport({ status: 200, body: { ...R200_OK.body,
       unmatched_articles: [{ code: 'ZZ-1', manufacturer: 'ACME', description: 'filtro' },
