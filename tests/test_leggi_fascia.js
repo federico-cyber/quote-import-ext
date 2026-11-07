@@ -59,7 +59,7 @@ function makeEnv({ S, form = 'muto', salvato = null, bridge }) {
     window: win,
     location: { href: HREF },
     TAG: '[test]',
-    S: { backendUrl: 'http://x:5008/api/quote-import', apiKey: 'k', overrideCliforNumero: 0, ...S },
+    S: { backendUrl: 'http://localhost:5008/api/quote-import', apiKey: 'k', overrideCliforNumero: 0, ...S },
     ultimoPreventivo: salvato ? { id: '390061', href: HREF } : null,
     clientiPreventivo: new Map(salvato ? [['390061', salvato]] : []),
     fetch: async (url, init) => {
@@ -71,7 +71,7 @@ function makeEnv({ S, form = 'muto', salvato = null, bridge }) {
   });
   vm.runInContext(DEFAULTS_SRC, ctx);
   vm.runInContext(PURO + LETTURA + '\nthis.leggiFascia = leggiFascia;', ctx);
-  return { leggi: () => ctx.leggiFascia(), richieste, chiamate };
+  return { leggi: () => ctx.leggiFascia(), problema: (u) => ctx.backendUrlProblem(u), richieste, chiamate };
 }
 
 // Bridge con la fascia accesa: GIMA in recupero, altri normali, senza cliente 400.
@@ -161,6 +161,16 @@ test('override > 0: nessuna richiesta al form, body override', async () => {
 test('form senza cliente e bridge giù → senzaCliente', async () => {
   const e = makeEnv({ S: {}, form: formCon(null), bridge: () => { throw new Error('rete'); } });
   assert.strictEqual((await e.leggi()).stato, 'senzaCliente');
+});
+
+test('backendUrl fuori dai permessi, vuoto o relativo: errore col motivo e fetch non chiamato (#75)', async () => {
+  for (const url of ['http://evil.example:5008/api/quote-import', '', '   ', '/relativo']) {
+    const e = makeEnv({ S: { backendUrl: url }, form: formCon(GIMA), bridge: BRIDGE });
+    const r = await e.leggi();
+    assert.strictEqual(r.stato, 'errore', JSON.stringify(url));
+    assert.ok(r.motivo.includes(e.problema(url)), `motivo senza il testo di backendUrlProblem: ${r.motivo}`);
+    assert.strictEqual(e.chiamate.length, 0, `fetch chiamato per ${JSON.stringify(url)}`);
+  }
 });
 
 (async () => {

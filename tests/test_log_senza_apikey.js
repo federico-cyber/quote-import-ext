@@ -44,7 +44,7 @@ const cases = [];
 function test(name, fn) { cases.push([name, fn]); }
 
 test('il log di loadSettings non contiene la apiKey', async () => {
-  const { righe } = await esegui({ apiKey: CHIAVE, backendUrl: 'http://x:5008/api/quote-import' });
+  const { righe } = await esegui({ apiKey: CHIAVE, backendUrl: 'http://localhost:5008/api/quote-import' });
   assert.ok(righe.length > 0, 'loadSettings deve loggare qualcosa');
   for (const r of righe) assert.ok(!r.includes(CHIAVE), `la chiave compare nel log: ${r}`);
 });
