@@ -44,8 +44,9 @@ Nessuna install: JS vanilla, zero dipendenze npm. Serve solo:
 3. **Caricamento smoke-test in Chromium headless** (prova che l'estensione si
    installa senza errori, senza toccare qricambi.com):
    ```
+   export PROFILE=$(mktemp -d -t qie-verify-profile.XXXXXX)
    python3 - <<'PY'
-   import asyncio
+   import asyncio, os
    from playwright.async_api import async_playwright
    EXT = "."  # eseguire dalla root del repo/worktree
    JS = """() => { function c(r,a){r.querySelectorAll('*').forEach(e=>{if(e.shadowRoot)c(e.shadowRoot,a)});a.push(r.textContent||'')}
@@ -53,7 +54,7 @@ Nessuna install: JS vanilla, zero dipendenze npm. Serve solo:
    async def main():
        async with async_playwright() as p:
            ctx = await p.chromium.launch_persistent_context(
-               "/tmp/qie-verify-profile", headless=False,
+               os.environ["PROFILE"], headless=False,
                args=[f"--disable-extensions-except={EXT}", f"--load-extension={EXT}",
                      "--headless=new", "--no-sandbox"])
            page = await ctx.new_page()
@@ -65,12 +66,13 @@ Nessuna install: JS vanilla, zero dipendenze npm. Serve solo:
            await ctx.close()
    asyncio.run(main())
    PY
-   rm -rf /tmp/qie-verify-profile
+   rm -rf "${PROFILE:?}"
    ```
-   Atteso: `EXTENSION_LOADED: True`, `HAS_ERRORS_TEXT: False`. Il profilo
-   temporaneo non serve fermare nessun processo per PID (playwright chiude
-   `ctx` da solo); se resta un profilo orfano in `/tmp/`, `rm -rf` è
-   sufficiente (nessun dato, non è un servizio in ascolto).
+   Atteso: `EXTENSION_LOADED: True`, `HAS_ERRORS_TEXT: False`. Il profilo è una
+   directory nuova a ogni esecuzione (`mktemp -d`): due esecuzioni parallele non si
+   pestano. Non serve fermare nessun processo per PID (playwright chiude `ctx` da
+   solo); se resta un profilo orfano (cerca `qie-verify-profile.*` in `$TMPDIR`), `rm -rf` sulla
+   sua directory è sufficiente (nessun dato, non è un servizio in ascolto).
 
 ## Le tre regole del verify-runner (claude-config#805)
 
@@ -105,15 +107,15 @@ dalla pagina Opzioni nello stesso modo.
 I bottoni del FAB che fanno una POST («Importa in SIRJ», «Pricing + Import») si cliccano
 davvero in Chromium headless con l'estensione caricata, su una pagina fixture servita su
 `https://verify.qricambi.com/` da `ctx.route` (nessuna rete verso Qricambi) e con un
-**bridge finto** su `127.0.0.1:15008` (stdlib, risponde 200 `sirj_numero` 99999, non
+**bridge finto** su `127.0.0.1:$PORT`, una porta libera scelta a ogni esecuzione (stdlib, risponde 200 `sirj_numero` 99999, non
 scrive niente, tiene le POST in memoria). `backendUrl`/`apiKey` si impostano dalla UI
 della pagina Opzioni, come farebbe Fede.
 
 **Copia temporanea dell'estensione (#75).** La guardia di #68 (`backendUrlProblem`,
-`defaults.js`) lascia passare solo gli host di `host_permissions`, e `127.0.0.1:15008`
+`defaults.js`) lascia passare solo gli host di `host_permissions`, e `127.0.0.1:$PORT`
 non c'è: sull'originale le Opzioni rifiutano l'indirizzo e l'import si ferma prima della
 POST. Per non allargare i permessi di produzione la ricetta fa caricare a Chromium una
-**copia** in `/tmp/qie-verify/ext` con `http://127.0.0.1:15008/*` aggiunto in
+**copia** in `$OUT/ext` (`$OUT` = directory `mktemp -d` di questa esecuzione) con `http://127.0.0.1:$PORT/*` aggiunto in
 `manifest.json` (`host_permissions`) e in `BACKEND_HOST_PATTERNS` di `defaults.js`
 (`sed` solo sulla copia, mai sul repo; lo script si ferma se i due `sed` non hanno
 agganciato). Conseguenza: questo flusso prova il FAB e le POST con la guardia **accesa**
@@ -121,23 +123,27 @@ e un host ammesso; che la guardia rifiuti un host fuori elenco lo provano i test
 (`tests/test_import_backend_url_guard.js`, `tests/test_fascia_recupero.js`,
 `tests/test_leggi_fascia.js`), che leggono l'**originale**, non la copia. Lo script lancia un timeout se manca la
 modale «PR3 99999/2026»; stampa le POST ricevute dal bridge con `X-API-Key`. Screenshot a
-390 e 1440 px in `/tmp/qie-verify/`. Eseguire dalla root del worktree:
+390 e 1440 px in `$OUT`. Directory e porta sono per-run: due esecuzioni parallele non si
+toccano. Eseguire dalla root del worktree:
 
 ```
-rm -rf /tmp/qie-verify && mkdir -p /tmp/qie-verify/ext
-tar --exclude=.git --exclude=tests --exclude=docs -cf - . | tar -xf - -C /tmp/qie-verify/ext
-sed -i 's#^    "http://localhost:5008/\*"$#    "http://localhost:5008/*",\n    "http://127.0.0.1:15008/*"#' /tmp/qie-verify/ext/manifest.json
-sed -i 's#^  "http://localhost:5008/\*",$#&\n  "http://127.0.0.1:15008/*",#' /tmp/qie-verify/ext/defaults.js
-grep -c "127.0.0.1:15008" /tmp/qie-verify/ext/manifest.json /tmp/qie-verify/ext/defaults.js
+export QIE_OUT=$(mktemp -d -t qie-verify.XXXXXX)
+export QIE_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+mkdir -p "${QIE_OUT:?}/ext"
+tar --exclude=.git --exclude=tests --exclude=docs -cf - . | tar -xf - -C "${QIE_OUT:?}/ext"
+sed -i 's#^    "http://localhost:5008/\*"$#    "http://localhost:5008/*",\n    "http://127.0.0.1:'"${QIE_PORT:?}"'/*"#' "${QIE_OUT:?}/ext/manifest.json"
+sed -i 's#^  "http://localhost:5008/\*",$#&\n  "http://127.0.0.1:'"${QIE_PORT:?}"'/*",#' "${QIE_OUT:?}/ext/defaults.js"
+grep -c "127.0.0.1:${QIE_PORT:?}" "${QIE_OUT:?}/ext/manifest.json" "${QIE_OUT:?}/ext/defaults.js"
 python3 - <<'PY'
 import json, os, sys, threading, glob
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from playwright.sync_api import sync_playwright
 
-OUT = "/tmp/qie-verify"
-EXT = OUT + "/ext"  # copia con 127.0.0.1:15008 ammesso, non il repo
+OUT = os.environ["QIE_OUT"]  # directory per-run (mktemp -d), non fissa
+PORT = int(os.environ["QIE_PORT"])  # porta libera per-run, scelta dalla shell
+EXT = OUT + "/ext"  # copia con 127.0.0.1:PORT ammesso, non il repo
 for f in ("manifest.json", "defaults.js"):
-    assert "127.0.0.1:15008" in open(f"{EXT}/{f}").read(), f"sed non applicato a {f}"
+    assert f"127.0.0.1:{PORT}" in open(f"{EXT}/{f}").read(), f"sed non applicato a {f}"
 HITS = []
 class Bridge(BaseHTTPRequestHandler):
     def _cors(self):
@@ -152,7 +158,7 @@ class Bridge(BaseHTTPRequestHandler):
         out = json.dumps({"sirj_numero": 99999, "sirj_anno": 2026}).encode()
         self.send_response(200); self._cors(); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(out)
     def log_message(self, *a): pass
-srv = HTTPServer(("127.0.0.1", 15008), Bridge)
+srv = HTTPServer(("127.0.0.1", PORT), Bridge)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 PAYLOAD = {"ID": 4711, "items": [{"code": "MOT.X-CLEAN+", "manufacturer": "ACME", "description": "Filtro", "num": 2, "price": 12.5}],
@@ -188,7 +194,7 @@ with sync_playwright() as p:
     patch_status["v"] = 200
     opt = ctx.new_page()
     opt.goto(f"chrome-extension://{ext_id}/options.html")
-    opt.fill("#backendUrl", "http://127.0.0.1:15008/api/quote-import")
+    opt.fill("#backendUrl", f"http://127.0.0.1:{PORT}/api/quote-import")
     opt.fill("#apiKey", "verify-key")
     opt.click("#save-btn")
     opt.wait_for_timeout(500); opt.close()
@@ -214,11 +220,11 @@ CONTROLLO PATCH 500: ['Nessun preventivo intercettato.'] bridge hits: 0
 390 dialog: ['Importare in SIRJ come PR3?'] | modale PR3 visibile | bridge hits: 1 {'key': 'verify-key', ...}
 1440 dialog: ['Importare in SIRJ come PR3?'] | modale PR3 visibile | bridge hits: 2 {'key': 'verify-key', ...}
 ```
-Poi `rm -rf /tmp/qie-verify`. Note: il flag `--disable-features=LocalNetworkAccessChecks,...`
+Poi `rm -rf "${QIE_OUT:?}"`. Note: il flag `--disable-features=LocalNetworkAccessChecks,...`
 serve solo perché una pagina «pubblica» chiama un bridge su loopback (in produzione lo
 copre il permesso di rete locale del Chrome di Fede); il bridge finto manda anche gli
 header CORS. Il bridge finto muore con lo script (`srv.shutdown()`); se lo script si
-interrompe, libera la porta 15008 fermando il PID che mostra `ss -ltnp | grep 15008`.
+interrompe, libera la porta fermando il PID che mostra `ss -ltnp | grep "$QIE_PORT"`.
 Se il diff tocca solo logica pricing (`pricing.content.js`) la pagina fixture non ha la
 tabella Vue: la regola pricing resta coperta da `tests/test_calcola_riga.js`.
 
@@ -271,7 +277,7 @@ CLAUDE.md §Test. Per controllare che l'elenco sia completo: `ls tests/*.js`.
 
 Solo letture verso servizi/DB di produzione: mai POST/PUT/PATCH/DELETE verso
 `:5008` o verso qricambi.com (le POST dello script UI vanno solo al bridge finto
-`127.0.0.1:15008`, che le scarta), mai scritture SIRJ (porta 8180 = produzione,
+`127.0.0.1:$QIE_PORT`, che le scarta), mai scritture SIRJ (porta 8180 = produzione,
 mai; sirjdbdemo/8080 solo lettura). Niente invio email/Telegram/WhatsApp/
 notifiche. Niente restart di unit, `git pull` in dir di deploy, deploy Pages o
 publish. Mai pubblicare l'estensione sullo store. Processi avviati per la
