@@ -107,19 +107,37 @@ davvero in Chromium headless con l'estensione caricata, su una pagina fixture se
 `https://verify.qricambi.com/` da `ctx.route` (nessuna rete verso Qricambi) e con un
 **bridge finto** su `127.0.0.1:15008` (stdlib, risponde 200 `sirj_numero` 99999, non
 scrive niente, tiene le POST in memoria). `backendUrl`/`apiKey` si impostano dalla UI
-della pagina Opzioni, come farebbe Fede. Lo script lancia un timeout se manca la
+della pagina Opzioni, come farebbe Fede.
+
+**Copia temporanea dell'estensione (#75).** La guardia di #68 (`backendUrlProblem`,
+`defaults.js`) lascia passare solo gli host di `host_permissions`, e `127.0.0.1:15008`
+non c'è: sull'originale le Opzioni rifiutano l'indirizzo e l'import si ferma prima della
+POST. Per non allargare i permessi di produzione la ricetta fa caricare a Chromium una
+**copia** in `/tmp/qie-verify/ext` con `http://127.0.0.1:15008/*` aggiunto in
+`manifest.json` (`host_permissions`) e in `BACKEND_HOST_PATTERNS` di `defaults.js`
+(`sed` solo sulla copia, mai sul repo; lo script si ferma se i due `sed` non hanno
+agganciato). Conseguenza: questo flusso prova il FAB e le POST con la guardia **accesa**
+e un host ammesso; che la guardia rifiuti un host fuori elenco lo provano i test node
+(`tests/test_import_backend_url_guard.js`, `tests/test_fascia_recupero.js`,
+`tests/test_leggi_fascia.js`), che leggono l'**originale**, non la copia. Lo script lancia un timeout se manca la
 modale «PR3 99999/2026»; stampa le POST ricevute dal bridge con `X-API-Key`. Screenshot a
 390 e 1440 px in `/tmp/qie-verify/`. Eseguire dalla root del worktree:
 
 ```
-mkdir -p /tmp/qie-verify && rm -rf /tmp/qie-verify/profile
+rm -rf /tmp/qie-verify && mkdir -p /tmp/qie-verify/ext
+tar --exclude=.git --exclude=tests --exclude=docs -cf - . | tar -xf - -C /tmp/qie-verify/ext
+sed -i 's#^    "http://localhost:5008/\*"$#    "http://localhost:5008/*",\n    "http://127.0.0.1:15008/*"#' /tmp/qie-verify/ext/manifest.json
+sed -i 's#^  "http://localhost:5008/\*",$#&\n  "http://127.0.0.1:15008/*",#' /tmp/qie-verify/ext/defaults.js
+grep -c "127.0.0.1:15008" /tmp/qie-verify/ext/manifest.json /tmp/qie-verify/ext/defaults.js
 python3 - <<'PY'
 import json, os, sys, threading, glob
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from playwright.sync_api import sync_playwright
 
-EXT = os.getcwd()
 OUT = "/tmp/qie-verify"
+EXT = OUT + "/ext"  # copia con 127.0.0.1:15008 ammesso, non il repo
+for f in ("manifest.json", "defaults.js"):
+    assert "127.0.0.1:15008" in open(f"{EXT}/{f}").read(), f"sed non applicato a {f}"
 HITS = []
 class Bridge(BaseHTTPRequestHandler):
     def _cors(self):
@@ -189,7 +207,8 @@ with sync_playwright() as p:
 srv.shutdown()
 PY
 ```
-Atteso (provato il 2026-10-09, Playwright 1.58):
+Atteso (la riga `grep -c` stampa `…/manifest.json:1` e `…/defaults.js:1`; il resto provato
+il 2026-10-09, Playwright 1.58):
 ```
 CONTROLLO PATCH 500: ['Nessun preventivo intercettato.'] bridge hits: 0
 390 dialog: ['Importare in SIRJ come PR3?'] | modale PR3 visibile | bridge hits: 1 {'key': 'verify-key', ...}

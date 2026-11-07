@@ -1116,7 +1116,11 @@
 
   // Opzioni minime per leggere la fascia: senza indirizzo o senza chiave non
   // si chiama il server (sarebbe un 401 certo, o 4 s di timeout per niente).
+  // Stessa guardia dell'import (#68, backendUrlProblem in defaults.js): un
+  // indirizzo vuoto, relativo o fuori dai permessi non arriva mai a fetch.
   function opzioniFascia(backendUrl, apiKey) {
+    const problema = backendUrlProblem(backendUrl);
+    if (problema) return { errore: { stato: 'errore', motivo: 'indirizzo del server: ' + problema } };
     const url = urlFascia(backendUrl);
     if (!url) return { errore: { stato: 'errore', motivo: 'indirizzo del server non valido nelle Opzioni' } };
     if (!String(apiKey || '').trim()) {

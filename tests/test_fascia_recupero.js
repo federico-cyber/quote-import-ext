@@ -195,6 +195,25 @@ test('opzioniFascia: senza chiave o senza indirizzo non si chiama il server', ()
   assert.strictEqual(u.errore.stato, 'errore');
   assert.ok(/indirizzo/.test(u.errore.motivo));
 });
+test('opzioniFascia: indirizzo vuoto, relativo, non http o fuori dai permessi → motivo di backendUrlProblem (#75)', () => {
+  for (const x of ['', '   ', '/relativo', 'ftp://x', 'http://evil.example:5008/api/quote-import',
+    'http://user:pw@localhost:5008/api/quote-import']) {
+    const atteso = ctx.backendUrlProblem(x);
+    assert.ok(atteso, `backendUrlProblem deve rifiutare ${JSON.stringify(x)}`);
+    const e = opzioniFascia(x, 'k');
+    assert.strictEqual(e.url, undefined, `url non vuoto per ${JSON.stringify(x)}`);
+    assert.strictEqual(e.errore.stato, 'errore');
+    assert.ok(e.errore.motivo.includes(atteso), `motivo senza "${atteso}": ${e.errore.motivo}`);
+  }
+});
+test('opzioniFascia: indirizzo ammesso invariato (#75)', () => {
+  for (const x of ['http://localhost:5008/api/quote-import', 'http://192.168.1.41:5008',
+    'https://app.qricambi.com/api/quote-import']) {
+    const o = opzioniFascia(x, 'k');
+    assert.strictEqual(o.errore, undefined, x);
+    assert.ok(o.url.endsWith('/api/quote-import/fascia-cliente'), x);
+  }
+});
 test('urlFascia accanto all\'import configurato', () => {
   assert.strictEqual(urlFascia('http://100.86.223.69:5008/api/quote-import'),
     'http://100.86.223.69:5008/api/quote-import/fascia-cliente');
