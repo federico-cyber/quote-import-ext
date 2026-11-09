@@ -43,7 +43,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.10]';
+  const TAG = '[AR-PRICING v1.2.11]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -103,6 +103,11 @@
     .ar-row-low td  { background-color: rgba(248, 113, 113, 0.08) !important; color: #fca5a5 !important; }
     .ar-row-high td { background-color: rgba(74, 222, 128, 0.08) !important; color: #86efac !important; }
     
+    /* #5739: riga del cliente con sconto SIRJ prezzata senza lo sconto SIRJ
+       (non in SIRJ, senza regola, sotto costo): gialla, sopra i colori del ricarico */
+    .ar-row-nosirj td { background-color: rgba(250, 204, 21, 0.16) !important; }
+    .ar-row-nosirj td:first-child { box-shadow: inset 3px 0 0 #facc15; }
+
     .ar-utile-cell { border-left: 1px solid rgba(232,255,71,0.1); }
 
     /* Fix per sovrascrivere variabili CSS di Vuetify */
@@ -494,6 +499,8 @@
     ths.forEach((th, i) => {
       const t = th.textContent.trim().toLowerCase().replace(/[*]+$/, '').trim();
       if (t === 'descrizione') raw.descrizione = i;
+      if (t === 'codice') raw.codice = i;
+      if (t === 'costruttore') raw.costruttore = i;
       if (t === 'acquisto') raw.acquisto = i;
       if (t === 'ricarico') raw.ricarico = i;
       if (t === 'listino') raw.listino = i;
@@ -553,6 +560,22 @@
   function inputDiCella(td) {
     if (!td) return null;
     return td.querySelector('input');
+  }
+
+  // arauto#5739: codice e costruttore della riga, come li manda l'import. Il
+  // codice sta nel chip della colonna Codice (la colonna «Da ricerca» e' il
+  // codice cercato, non quello della riga); il costruttore e' un input, il cui
+  // valore sta nella proprieta' (l'attributo resta vuoto).
+  function testoCodice(td) {
+    if (!td) return '';
+    const chip = td.querySelector('.chip__content');
+    return String((chip || td).textContent || '').trim();
+  }
+
+  function testoCostruttore(td) {
+    if (!td) return '';
+    const inp = td.querySelector('input');
+    return String(inp ? inp.value : td.textContent || '').trim();
   }
 
   // ── SETTINGS & DEFAULTS ──────────────────────────────────
@@ -683,6 +706,47 @@
   }
   // ── fine leggiFascia ──
 
+  // arauto#5739: sconto SIRJ di ogni riga per il cliente `numero`, a blocchi di
+  // MAX_RIGHE_SCONTI. Il primo esito non `attivo` ferma tutto (esitoSconti).
+  // Timeout largo: il bridge cerca l'articolo riga per riga (~0,15 s l'una).
+  const SCONTI_TIMEOUT_MS = 20000;
+  async function leggiSconti(numero, righe) {
+    const url = urlSconti(S.backendUrl);
+    if (!url) return { stato: 'errore', motivo: 'indirizzo del server non valido nelle Opzioni' };
+    const tutte = [];
+    let punti = 0;
+    for (let i = 0; i < righe.length; i += MAX_RIGHE_SCONTI) {
+      const blocco = righe.slice(i, i + MAX_RIGHE_SCONTI);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), SCONTI_TIMEOUT_MS);
+      let esito;
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': S.apiKey },
+          body: JSON.stringify({ numero, righe: blocco, ext_version: versioneEstensione() }),
+          signal: ctrl.signal,
+        });
+        let data = null;
+        try { data = await res.json(); } catch (e) { /* corpo non JSON */ }
+        esito = esitoSconti(res.status, data, blocco.length);
+      } catch (e) {
+        console.warn(TAG, 'sconti cliente: server non raggiungibile o lento', e);
+        esito = esitoSconti(0, null, blocco.length);
+      } finally {
+        clearTimeout(timer);
+      }
+      if (esito.stato !== 'attivo') {
+        console.log(TAG, `sconti cliente C/${numero}:`, esito);
+        return esito;
+      }
+      punti = esito.punti;
+      tutte.push(...esito.righe);
+    }
+    console.log(TAG, `sconti cliente C/${numero}: ${tutte.length} righe, punti senza regola ${punti}`);
+    return { stato: 'attivo', punti, righe: tutte };
+  }
+
   function toastFascia(f, nRecupero) {
     const span = document.createElement('span');
     if (f.stato === 'recupero') {
@@ -726,9 +790,20 @@
           error: 'scegli prima il cliente del preventivo',
           fascia: { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: 0 } };
       }
-      const res = await esegui(fascia.stato === 'recupero' ? fascia.recupero : null);
+      const numero = (fascia.stato === 'normale' || fascia.stato === 'recupero') ? fascia.numero : null;
+      const res = await esegui(fascia.stato === 'recupero' ? fascia.recupero : null, numero);
       const nRecupero = (res.dettagli || []).filter(r => r.recuperoApplicato).length;
       res.fascia = { stato: fascia.stato, motivo: fascia.motivo, righeRecupero: nRecupero };
+
+      if (res.sconti && res.sconti.stato === 'errore') {
+        // #5739: cliente con lo sconto SIRJ ma sconti non letti: nessun prezzo.
+        const span = document.createElement('span');
+        span.className = 'o';
+        span.textContent = `● Sconti SIRJ del cliente non letti (${res.sconti.motivo})`;
+        showToast(`<b>Nessun prezzo scritto</b><br>${span.outerHTML}<br>` +
+          `<span class="m">Per questo cliente lo sconto viene da SIRJ: riprova fra poco.</span>`, 'error', 10000);
+        return res;
+      }
 
       if (res.tot === 0) {
         showToast(`
@@ -751,9 +826,12 @@
           'error'
         );
       } else {
-        const rA = res.dettagli.filter(r => r.regola === 'A').length;
-        const rB = res.dettagli.filter(r => r.regola === 'B').length;
-        const rC = res.dettagli.filter(r => r.regola === 'C').length;
+        const diSempre = res.dettagli.filter(r => !r.tipo);
+        const rA = diSempre.filter(r => r.regola === 'A').length;
+        const rB = diSempre.filter(r => r.regola === 'B').length;
+        const rC = diSempre.filter(r => r.regola === 'C').length;
+        const nTipo = (t) => res.dettagli.filter(r => r.tipo === t).length;
+        const punti = res.sconti && res.sconti.stato === 'attivo' ? res.sconti.punti : 0;
         const nRighe = parseInt(res.ok, 10);
         const label = nRighe !== 1 ? 'righe aggiornate' : 'riga aggiornata';
         showToast(
@@ -762,6 +840,11 @@
           (rA ? toastLine('g', 'Regola A', rA) : '') +
           (rB ? toastLine('b', 'Regola B', rB) : '') +
           (rC ? toastLine('o', 'Regola C', rC) : '') +
+          (nTipo('sirj') ? toastLine('g', 'Sconto SIRJ', nTipo('sirj')) : '') +
+          (nTipo('netto') ? toastLine('g', 'Netto SIRJ', nTipo('netto')) : '') +
+          (nTipo('senzaRegola') ? toastLine('o', `Non in SIRJ o senza regola, sconto −${punti} (gialle)`, nTipo('senzaRegola')) : '') +
+          (nTipo('sottoCosto') ? toastLine('o', 'SIRJ sotto l\'acquisto, regola di sempre (gialle)', nTipo('sottoCosto')) : '') +
+          (nTipo('senzaListino') ? toastLine('o', 'Senza listino, regola di sempre (gialle)', nTipo('senzaListino')) : '') +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
@@ -880,12 +963,34 @@
   }
 
   // ── LOGICA PRINCIPALE ──────────────────────────────────────
-  async function esegui(recupero) {
+  async function esegui(recupero, numeroCliente) {
     const table = trovaTabellaPreventivo();
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
+    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 });
     const col = mappaColonne(table);
-    if (!col) return { tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 };
+    if (!col) return vuoto();
+
+    // #5739: sconti SIRJ del cliente, letti prima di scrivere qualsiasi prezzo.
+    let sconti = null;
+    if (numeroCliente) {
+      const righe = righeConCodice(table, col);
+      if (col.codice === undefined) {
+        sconti = { stato: 'errore', motivo: 'colonna Codice non trovata nella tabella' };
+      } else if (righe.length) {
+        sconti = await leggiSconti(numeroCliente, righe.map(({ code, manufacturer }) => ({ code, manufacturer })));
+      }
+      if (sconti && sconti.stato === 'errore') {
+        return { ...vuoto(), error: 'sconti SIRJ del cliente non letti: ' + sconti.motivo, sconti };
+      }
+      if (sconti && sconti.stato === 'attivo') {
+        const perRiga = new Map();
+        righe.forEach((r, i) => perRiga.set(r.tr, sconti.righe[i]));
+        sconti = { ...sconti, perRiga };
+      } else {
+        sconti = null; // cliente fuori flag (o nessuna riga con codice): regole di sempre
+      }
+    }
 
     // Inietta colonna Utile se non esiste
     injectUtileColumn(table, col);
@@ -898,7 +1003,24 @@
 
     // Il vecchio FAB standalone (#ar-pricing-btn) non esiste più dalla unificazione;
     // il counter per-riga è stato rimosso (il FAB unico #ar-qr-fab-btn chiude il menu al click).
-    return await eseguiConIndici(table, col, null, recupero);
+    const res = await eseguiConIndici(table, col, null, recupero, sconti);
+    if (sconti) res.sconti = { stato: 'attivo', punti: sconti.punti };
+    return res;
+  }
+
+  // #5739: le righe che eseguiConIndici prezzera', con codice e costruttore.
+  function righeConCodice(table, col) {
+    if (col.codice === undefined) return [];
+    const minCols = colonneMinime(col);
+    const out = [];
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < minCols) continue;
+      const code = testoCodice(tds[col.codice]);
+      if (!code) continue;
+      out.push({ tr, code, manufacturer: col.costruttore !== undefined ? testoCostruttore(tds[col.costruttore]) : '' });
+    }
+    return out;
   }
 
   function shrinkDescriptionColumn(table, col) {
@@ -1146,13 +1268,15 @@
     if (status === 200 && b.attivo === true) {
       const soglia = Number(b.soglia), punti = Number(b.punti);
       const nome = String(b.ragione_sociale || b.numero || '');
+      // arauto#5739: il numero del cliente serve a chiedere gli sconti SIRJ.
+      const numero = Number.isInteger(b.numero) && b.numero > 0 ? b.numero : null;
       if (b.recupero === true) {
         if (!(Number.isFinite(soglia) && Number.isFinite(punti) && punti > 0)) {
           return { stato: 'errore', motivo: 'risposta del server senza soglia/punti' };
         }
-        return { stato: 'recupero', nome, listino: b.listino, recupero: { soglia, punti } };
+        return { stato: 'recupero', nome, numero, listino: b.listino, recupero: { soglia, punti } };
       }
-      return { stato: 'normale', nome, listino: b.listino };
+      return { stato: 'normale', nome, numero, listino: b.listino };
     }
     if (status === 400 && !haCliente) {
       return { stato: 'sconosciuto', motivo: 'nessun cliente nel preventivo: sceglilo e rilancia il Pricing' };
@@ -1179,14 +1303,96 @@
     });
   }
 
+  // ── SCONTO SIRJ DEL CLIENTE (arauto#5739) ──
+  // Per i clienti nella flag QRICAMBI_SCONTO_SIRJ_CLIENTI del bridge (oggi il 5,
+  // i privati) il Pricing usa lo sconto che SIRJ darebbe al cliente, riga per
+  // riga, invece delle regole A/B/C.
+  const FONTI_SCONTO_SIRJ = ['precodice', 'precodice+famiglia', 'famiglia'];
+  const MAX_RIGHE_SCONTI = 60; // come MAX_RIGHE del bridge: piu' righe = piu' chiamate
+
+  function urlSconti(backendUrl) {
+    const u = urlFascia(backendUrl);
+    return u ? u.replace(/\/fascia-cliente$/, '/sconti-cliente') : null;
+  }
+
+  // Esito di una chiamata a sconti-cliente per `nRighe` righe.
+  //   spento  cliente fuori flag (200 attivo:false) o bridge senza la rotta (404):
+  //           pricing di sempre, nessun avviso
+  //   attivo  { punti, righe } nello stesso ordine delle righe mandate
+  //   errore  cliente nella flag ma sconti non letti: nessun prezzo scritto
+  //           (prezzare come sempre darebbe a un privato lo sconto da officina)
+  function esitoSconti(status, body, nRighe) {
+    const b = (body && typeof body === 'object') ? body : {};
+    if (status === 404 || (status === 200 && b.attivo === false)) return { stato: 'spento' };
+    if (status === 200 && b.attivo === true) {
+      const punti = b.punti_senza_regola;
+      if (!(Number.isInteger(punti) && punti >= 0 && punti <= 99)) {
+        return { stato: 'errore', motivo: 'risposta del server senza punti_senza_regola' };
+      }
+      if (!Array.isArray(b.righe) || b.righe.length !== nRighe) {
+        return { stato: 'errore', motivo: 'righe della risposta diverse da quelle mandate' };
+      }
+      return { stato: 'attivo', punti, righe: b.righe };
+    }
+    if (status === 504 || status === 0) {
+      return { stato: 'errore', motivo: status ? 'SIRJ troppo lento' : 'server non raggiungibile' };
+    }
+    return { stato: 'errore', motivo: `server ${status}` };
+  }
+
+  // Prezzo di una riga. `sirj` = null (cliente fuori flag: calcolaRiga di sempre)
+  // oppure { punti, riga } con la riga della risposta di sconti-cliente.
+  // Restituisce i campi di calcolaRiga piu' `tipo`:
+  //   null          regole A/B/C di sempre
+  //   'sirj'        sconto SIRJ (precodice o famiglia) sul listino Qricambi
+  //   'netto'       vendita = netto SIRJ
+  //   'senzaRegola' articolo non in SIRJ o senza regola: regole di sempre meno `punti`
+  //   'sottoCosto'  il prezzo SIRJ sarebbe sotto l'acquisto: regole di sempre
+  //   'senzaListino' sconto SIRJ ma riga senza listino: regole di sempre
+  // Con lo sconto SIRJ la vendita e' la verita' (al centesimo): Qricambi ne
+  // ricava lo sconto, che puo' essere decimale (27,8). Niente ritocco del listino.
+  function prezzoRiga(acquisto, listino, S, recupero, sirj) {
+    const diSempre = (tipo) => ({ ...calcolaRiga(acquisto, listino, S, recupero), tipo });
+    if (!sirj) return diSempre(null);
+    const r = (sirj.riga && typeof sirj.riga === 'object') ? sirj.riga : {};
+    const sconto = r.sconto === null || r.sconto === undefined ? NaN : Number(r.sconto);
+    if (FONTI_SCONTO_SIRJ.includes(r.fonte) && Number.isFinite(sconto) && sconto >= 0 && sconto < 100) {
+      if (!(listino > 0)) return diSempre('senzaListino');
+      const vendita = Math.round(Math.round(listino * 100) * (100 - sconto) / 100) / 100;
+      if (vendita < acquisto) return diSempre('sottoCosto');
+      return { regola: 'S', scontoCliente: sconto, scontoCalcolato: sconto, listinoFin: listino,
+        prezzoClienteTarget: vendita, recuperoApplicato: false, tipo: 'sirj' };
+    }
+    const netto = r.netto === null || r.netto === undefined ? NaN : Number(r.netto);
+    if (r.fonte === 'netto' && Number.isFinite(netto) && netto > 0) {
+      const vendita = Math.round(netto * 100) / 100;
+      if (vendita < acquisto) return diSempre('sottoCosto');
+      // Listino assente o sotto il netto: listino = netto, sconto 0.
+      const lis = listino > 0 && listino >= vendita ? listino : vendita;
+      const sc = Math.round((1 - vendita / lis) * 10000) / 100;
+      return { regola: 'N', scontoCliente: sc, scontoCalcolato: sc, listinoFin: lis,
+        prezzoClienteTarget: vendita, recuperoApplicato: false, tipo: 'netto' };
+    }
+    // nessuna_regola, non_in_sirj, o riga che non si sa leggere: regole di
+    // sempre con `punti` in meno su ogni sconto (soglia 0), come una fascia di
+    // recupero. Vince sulla fascia del cliente, se ne ha una.
+    const punti = Number.isInteger(sirj.punti) && sirj.punti > 0 ? sirj.punti : 0;
+    if (!punti) return diSempre('senzaRegola');
+    return { ...calcolaRiga(acquisto, listino, S, { soglia: 0, punti }),
+      recuperoApplicato: false, tipo: 'senzaRegola' };
+  }
+
+  // Celle minime di una riga da prezzare (eseguiConIndici, righeConCodice).
+  function colonneMinime(col) {
+    return Math.max(col.acquisto ?? 0, col.listino ?? 0, col.sconto ?? 0) + 1;
+  }
+
   // ── fine calcolaRiga ──
 
-  async function eseguiConIndici(table, col, onProgress, recupero) {
-    const minCols = Math.max(
-      col.acquisto ?? 0,
-      col.listino ?? 0,
-      col.sconto ?? 0
-    ) + 1;
+  // `sconti` (#5739) = null, o { punti, perRiga: Map tr → riga di sconti-cliente }:
+  // una riga senza voce (codice vuoto) vale come non in SIRJ.
+  async function eseguiConIndici(table, col, onProgress, recupero, sconti) {
+    const minCols = colonneMinime(col);
 
     const allTr = Array.from(table.querySelectorAll('tbody tr'));
     console.log(TAG, `Analisi su ${allTr.length} righe`);
@@ -1199,6 +1405,7 @@
     for (let ri = 0; ri < allTr.length; ri++) {
       if (onProgress) onProgress(ri + 1, allTr.length);
       const tr = allTr[ri];
+      tr.classList.remove('ar-row-nosirj'); // #5739: niente colore rimasto dal giro prima
       const tds = tr.querySelectorAll('td');
 
       if (tds.length < minCols) continue;
@@ -1234,8 +1441,13 @@
       if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
       if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });
 
-      const { regola, scontoCliente, listinoFin, prezzoClienteTarget, recuperoApplicato } =
-        calcolaRiga(acquisto, listino, S, recupero);
+      const sirj = sconti
+        ? { punti: sconti.punti, riga: sconti.perRiga.get(tr) || { fonte: 'non_in_sirj' } } : null;
+      const { regola, scontoCliente, listinoFin, prezzoClienteTarget, recuperoApplicato, tipo } =
+        prezzoRiga(acquisto, listino, S, recupero, sirj);
+      // Sconto SIRJ o netto: la vendita e' la verita' e Qricambi ne ricava lo
+      // sconto (anche decimale), che si controlla con tolleranza.
+      const venditaEsatta = tipo === 'sirj' || tipo === 'netto';
       let successo = false;
 
       // Listino da scrivere: fittizio in Regola B, ritoccato di qualche centesimo
@@ -1269,8 +1481,12 @@
           const venditaOk = await setVueInput(venditaInp, prezzoClienteTarget.toFixed(2));
           // v1.1.8 (#21): Qricambi ricalcola lo sconto dalla Vendita; con il
           // listino ritoccato (#24) la vendita è esatta e lo sconto resta intero.
-          // La riscrittura finale resta come rete di sicurezza.
-          const scontoOk = await setVueInput(scontoInp, scontoCliente);
+          // La riscrittura finale resta come rete di sicurezza. Con lo sconto
+          // SIRJ (#5739) niente riscrittura: lo sconto ricavato dalla vendita al
+          // centesimo puo' differire di qualche centesimo di punto.
+          const scontoOk = venditaEsatta
+            ? Math.abs((parseNum(scontoInp.value) ?? NaN) - scontoCliente) < 0.1
+            : await setVueInput(scontoInp, scontoCliente);
           if (!scontoOk) {
             console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
           }
@@ -1303,6 +1519,9 @@
         tr.classList.add(flashClass);
         setTimeout(() => tr.classList.remove('ar-flash-a', 'ar-flash-b', 'ar-flash-c'), 1500);
 
+        // #5739: riga del cliente con sconto SIRJ prezzata senza lo sconto SIRJ.
+        if (tipo && !venditaEsatta) tr.classList.add('ar-row-nosirj');
+
         // Color Coding della riga
         tr.classList.remove('ar-row-low', 'ar-row-high');
         if (ricaricoEffettivo < S.uiThresholdLow) {
@@ -1313,7 +1532,7 @@
 
         ok++;
         if (rigaCambiata(snapFields)) cambiate++; // #46: scritta davvero, non gia' prezzata
-        dettagli.push({ regola, utileTotale, ricaricoEffettivo, recuperoApplicato });
+        dettagli.push({ regola, utileTotale, ricaricoEffettivo, recuperoApplicato, tipo });
         lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
         skip++; skipReasons.setFailed++;
@@ -1362,7 +1581,7 @@
             ? entry.tr.querySelector('.ar-utile-cell') : null;
           if (utileCell) { utileCell.textContent = '-'; utileCell.style.color = '#fff'; }
           if (entry.tr && entry.tr.classList) {
-            entry.tr.classList.remove('ar-row-low', 'ar-row-high', 'ar-flash-a', 'ar-flash-b', 'ar-flash-c');
+            entry.tr.classList.remove('ar-row-low', 'ar-row-high', 'ar-row-nosirj', 'ar-flash-a', 'ar-flash-b', 'ar-flash-c');
           }
         } else {
           skipped++;

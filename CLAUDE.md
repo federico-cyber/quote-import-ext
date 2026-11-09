@@ -106,6 +106,7 @@ node tests/test_leggi_fascia.js
 node tests/test_import_backend_url_guard.js
 node tests/test_log_senza_apikey.js
 node tests/test_manifest_privacy.js
+node tests/test_sconti_sirj.js
 ```
 
 ### Indirizzo del server valido o niente invio (#68)
@@ -284,6 +285,39 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
   Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA
   resta attivo per riprovare) e il toast è rosso con il conteggio.
+
+### Sconto SIRJ del cliente (arauto#5739, v1.2.11)
+
+Per i clienti nella flag del bridge `QRICAMBI_SCONTO_SIRJ_CLIENTI` (oggi solo C/5, i privati
+al banco) il Pricing prezza ogni riga con lo sconto che SIRJ darebbe a quel cliente.
+Decisioni di Fede (09/11/2026):
+
+- **Chi decide.** `onPricing` prende il `numero` del cliente dalla risposta di
+  `fascia-cliente` (stati `normale`/`recupero`), poi `leggiSconti` chiama
+  `POST <backendUrl>/sconti-cliente` (sola lettura) con codice (chip della colonna
+  «Codice», `testoCodice`) e costruttore (`testoCostruttore`) di ogni riga, a blocchi di 60,
+  timeout 20 s. Le regole (precodice, famiglia, netto, punti senza regola) stanno nel bridge
+  (`arauto/qricambi-bridge/quote_import_sconti.py`), l'estensione non ne tiene copia.
+- **Per riga** (`prezzoRiga`, pura):
+  - fonte `precodice`, `precodice+famiglia`, `famiglia`: vendita = listino Qricambi ×
+    (100 − sconto SIRJ), al centesimo, anche con sconto decimale (27,8). Niente ritocco del
+    listino (#24): la Vendita è la verità, Qricambi ne ricava lo sconto; lo sconto **non** si
+    riscrive dopo la Vendita, si controlla con tolleranza 0,1 (fuori → `venditaNonConfermata`);
+  - fonte `netto`: vendita = netto SIRJ; listino assente o sotto il netto → listino = netto;
+  - vendita SIRJ sotto l'acquisto (`sottoCosto`) o riga senza listino (`senzaListino`):
+    regole di sempre, riga gialla;
+  - non in SIRJ, senza regola, riga illeggibile: regole di sempre con `punti_senza_regola`
+    (20) in meno su ogni sconto, mai sotto 0, riga gialla (`ar-row-nosirj`, tolta da ANNULLA
+    e a ogni Pricing). Fede: «togli un ulteriore 20».
+- **Nel dubbio, niente prezzi.** Diverso dalla fascia: se gli sconti di un cliente nella flag
+  non si leggono (SIRJ giù, 503, timeout, risposta malformata, righe che non tornano) il
+  Pricing non scrive nulla, toast «Nessun prezzo scritto … riprova» ed esito con `error`
+  (Pricing + Import non importa). Solo 404 (bridge vecchio) e `attivo:false` (cliente fuori
+  flag) prezzano come sempre, senza avviso.
+- **Rollback.** Spegnere la flag nel bridge (`/opt/arauto/.env`, riga
+  `QRICAMBI_SCONTO_SIRJ_CLIENTI`) e riavviare `qricambi-bridge`: risponde `attivo:false` e
+  l'estensione torna alle regole di sempre senza una nuova release.
+- Test: `node tests/test_sconti_sirj.js`.
 
 ### Riga con Vendita mappata ma senza casella (#56)
 
