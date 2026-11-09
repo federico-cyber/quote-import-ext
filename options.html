@@ -133,6 +133,10 @@
         <div class="check-row"><input type="checkbox" id="regBSottoCosto">
         <label for="regBSottoCosto">Pricing: listino sotto l'acquisto → Regola B</label></div>
         <span class="description">Acceso: se il listino della riga non supera il prezzo d'acquisto (listino vecchio o basso) la riga si prezza con la Regola B, come senza listino, per non vendere sotto costo. Spento: Regola A col listino com'è (comportamento precedente). Vale dal prossimo pricing.</span></div>
+      <div class="form-group">
+        <div class="check-row"><input type="checkbox" id="scontoSirjCliente">
+        <label for="scontoSirjCliente">Pricing: sconto SIRJ del cliente (privati)</label></div>
+        <span class="description">Acceso: per i clienti con lo sconto SIRJ (oggi i privati, cliente 5) ogni riga si prezza con lo sconto che darebbe SIRJ; le righe senza sconto SIRJ con la regola di sempre meno 20, in giallo; se gli sconti non si leggono nessun prezzo viene scritto. Spento: regole di sempre per tutti (comportamento precedente). Vale dal prossimo pricing.</span></div>
     </div>
 
     <div class="actions">

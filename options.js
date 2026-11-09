@@ -41,6 +41,7 @@ function loadSettings() {
     document.getElementById('importAttendeInVolo').checked = s.importAttendeInVolo !== false;
     document.getElementById('quoteOpenSoloOk').checked = s.quoteOpenSoloOk !== false;
     document.getElementById('regBSottoCosto').checked = s.regBSottoCosto !== false;
+    document.getElementById('scontoSirjCliente').checked = s.scontoSirjCliente !== false;
     clearAllErrors();
   });
 }
@@ -118,6 +119,7 @@ function saveSettings() {
     importAttendeInVolo:   document.getElementById('importAttendeInVolo').checked,
     quoteOpenSoloOk:       document.getElementById('quoteOpenSoloOk').checked,
     regBSottoCosto:        document.getElementById('regBSottoCosto').checked,
+    scontoSirjCliente:     document.getElementById('scontoSirjCliente').checked,
   };
   chrome.storage.local.set(settings, () => flashStatus('Impostazioni salvate con successo!', false));
 }

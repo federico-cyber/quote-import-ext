@@ -43,8 +43,8 @@ function estrai(nome) {
 const ctx = vm.createContext({ URL });
 vm.runInContext(DEFAULTS_SRC, ctx);
 vm.runInContext(SRC.slice(calcStart, calcEnd) +
-  '\nthis.f = { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia };', ctx);
-const { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia } = ctx.f;
+  '\nthis.f = { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia, tolleranzaSconto };', ctx);
+const { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia, tolleranzaSconto } = ctx.f;
 
 const DEF = {
   regADelta: 20, regACapThreshold: 80, regACapValue: 70,
@@ -143,7 +143,9 @@ async function test(name, fn) {
   await test('non in SIRJ, fonte sconosciuta, riga vuota o sconto illeggibile: come nessuna regola', () => {
     for (const riga of [{ fonte: 'non_in_sirj' }, { fonte: 'boh', sconto: 30 }, {}, null,
                         { fonte: 'famiglia', sconto: null }, { fonte: 'famiglia', sconto: 'x' },
-                        { fonte: 'famiglia', sconto: 100 }, { fonte: 'netto', netto: 0 }]) {
+                        { fonte: 'famiglia', sconto: 100 }, { fonte: 'netto', netto: 0 },
+                        { fonte: 'famiglia', sconto: '' }, { fonte: 'famiglia', sconto: '30' },
+                        { fonte: 'netto', netto: '' }]) {
       const r = prezzoRiga(25, 100, DEF, null, sirj(riga));
       assert.strictEqual(r.tipo, 'senzaRegola', JSON.stringify(riga));
       assert.strictEqual(r.scontoCliente, 35, JSON.stringify(riga));
@@ -171,29 +173,32 @@ async function test(name, fn) {
   });
 
   // ── esitoSconti ─────────────────────────────────────────────────────────
+  const INV = [{ code: 'A1', manufacturer: 'BOSCH' }, { code: 'B2', manufacturer: 'HOFFER' }];
   const OK = { attivo: true, numero: 5, listino: 101, punti_senza_regola: 20,
-    righe: [{ fonte: 'famiglia', sconto: 30 }, { fonte: 'non_in_sirj' }] };
+    righe: [{ code: 'A1', fonte: 'famiglia', sconto: 30 }, { code: 'B2', fonte: 'non_in_sirj' }] };
   await test('200 attivo: righe e punti', () => {
-    const e = esitoSconti(200, OK, 2);
+    const e = esitoSconti(200, OK, INV);
     assert.strictEqual(e.stato, 'attivo');
     assert.strictEqual(e.punti, 20);
     assert.strictEqual(e.righe.length, 2);
   });
   await test('cliente fuori flag o bridge senza la rotta: spento', () => {
-    assert.strictEqual(esitoSconti(200, { attivo: false }, 2).stato, 'spento');
-    assert.strictEqual(esitoSconti(404, null, 2).stato, 'spento');
+    assert.strictEqual(esitoSconti(200, { attivo: false }, INV).stato, 'spento');
+    assert.strictEqual(esitoSconti(404, null, INV).stato, 'spento');
   });
   await test('risposta 200 malformata: errore', () => {
     for (const b of [{ ...OK, punti_senza_regola: undefined }, { ...OK, punti_senza_regola: -1 },
                      { ...OK, punti_senza_regola: 2.5 }, { ...OK, punti_senza_regola: '20' },
-                     { ...OK, righe: [OK.righe[0]] }, { ...OK, righe: null }, null, 'x', {}]) {
-      assert.strictEqual(esitoSconti(200, b, 2).stato, 'errore', JSON.stringify(b));
+                     { ...OK, righe: [OK.righe[0]] }, { ...OK, righe: null }, null, 'x', {},
+                     { ...OK, righe: [OK.righe[1], OK.righe[0]] }, { ...OK, righe: [OK.righe[0], null] },
+                     { ...OK, righe: [OK.righe[0], { fonte: 'famiglia', sconto: 30 }] }]) {
+      assert.strictEqual(esitoSconti(200, b, INV).stato, 'errore', JSON.stringify(b));
     }
   });
   await test('SIRJ giù, timeout, chiave sbagliata, body rifiutato: errore con motivo', () => {
     for (const [st, re] of [[503, /503/], [0, /non raggiungibile/], [504, /lento/], [401, /401/],
                             [400, /400/], [422, /422/], [500, /500/]]) {
-      const e = esitoSconti(st, { error: 'x' }, 2);
+      const e = esitoSconti(st, { error: 'x' }, INV);
       assert.strictEqual(e.stato, 'errore');
       assert.ok(re.test(e.motivo), `${st}: ${e.motivo}`);
     }
@@ -220,8 +225,12 @@ async function test(name, fn) {
     const inp = conInput ? mkInput(valore) : null;
     return { textContent: String(valore), querySelector: (s) => (s === 'input' ? inp : null), inp };
   }
-  function mkTr(acq, lis, sc) {
-    const td = [mkTd(acq, false), mkTd(lis, true), mkTd(sc, true), mkTd('0', true), mkTd('1', false)];
+  function mkCodice(code) {
+    const chip = { textContent: ` ${code} ` };
+    return { textContent: `${code} content_copy`, chip, querySelector: (s) => (s === '.chip__content' ? chip : null) };
+  }
+  function mkTr(acq, lis, sc, code = '') {
+    const td = [mkTd(acq, false), mkTd(lis, true), mkTd(sc, true), mkTd('0', true), mkTd('1', false), mkCodice(code)];
     const utile = { textContent: '-', style: {} };
     const classi = new Set(['ar-row-nosirj']); // colore rimasto dal giro prima
     return {
@@ -231,7 +240,7 @@ async function test(name, fn) {
       classList: { add: (...c) => c.forEach(x => classi.add(x)), remove: (...c) => c.forEach(x => classi.delete(x)) },
     };
   }
-  const COL = { acquisto: 0, listino: 1, sconto: 2, vendita: 3, pezzi: 4 };
+  const COL = { acquisto: 0, listino: 1, sconto: 2, vendita: 3, pezzi: 4, codice: 5 };
   function esegui(righe, sconti) {
     const scritture = [];
     const c = vm.createContext({
@@ -244,15 +253,15 @@ async function test(name, fn) {
       '  for (const tr of __righe) if (tr.td[3].inp === input) {\n' +
       '    const l = parseFloat(tr.td[1].inp.value); tr.td[2].inp.value = String(Math.round((1 - parseFloat(value) / l) * 10000) / 100); }\n' +
       '  return true; }\n' +
-      estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' +
+      estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' + estrai('testoCodice') + '\n' +
       SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
       '\nthis.run = (s) => eseguiConIndici({ querySelectorAll: () => __righe }, ' + JSON.stringify(COL) + ', null, null, s);', c);
     return c.run(sconti).then((res) => ({ res, scritture }));
   }
 
   await test('riga SIRJ decimale: vendita esatta, sconto non riscritto, riga ok e non gialla', async () => {
-    const tr = mkTr('3.00', '8.74', '0');
-    const perRiga = new Map([[tr, { fonte: 'famiglia', sconto: 27.8 }]]);
+    const tr = mkTr('3.00', '8.74', '0', 'BP1234');
+    const perRiga = new Map([[tr, { code: 'BP1234', riga: { fonte: 'famiglia', sconto: 27.8 } }]]);
     const { res, scritture } = await esegui([tr], { punti: 20, perRiga });
     assert.strictEqual(res.ok, 1, JSON.stringify(res.skipReasons));
     assert.strictEqual(tr.td[3].inp.value, '6.31');
@@ -264,8 +273,8 @@ async function test(name, fn) {
 
   await test('riga senza voce (codice vuoto) e riga nessuna_regola: meno 20 e gialle', async () => {
     const a = mkTr('25.00', '100.00', '0');
-    const b = mkTr('25.00', '100.00', '0');
-    const perRiga = new Map([[b, { fonte: 'nessuna_regola' }]]);
+    const b = mkTr('25.00', '100.00', '0', 'X9');
+    const perRiga = new Map([[b, { code: 'X9', riga: { fonte: 'nessuna_regola' } }]]);
     const { res } = await esegui([a, b], { punti: 20, perRiga });
     assert.strictEqual(res.ok, 2, JSON.stringify(res.skipReasons));
     for (const tr of [a, b]) {
@@ -284,19 +293,38 @@ async function test(name, fn) {
     assert.strictEqual(res.dettagli[0].tipo, null);
   });
 
+  await test('listino 2,00 e sconto 27,8: Qricambi ricava 28, entro tolleranza (riga ok)', async () => {
+    const tr = mkTr('1.00', '2.00', '0', 'GUARN');
+    const perRiga = new Map([[tr, { code: 'GUARN', riga: { fonte: 'famiglia', sconto: 27.8 } }]]);
+    const { res } = await esegui([tr], { punti: 20, perRiga });
+    assert.strictEqual(tr.td[3].inp.value, '1.44');
+    assert.strictEqual(tr.td[2].inp.value, '28');
+    assert.strictEqual(res.ok, 1, JSON.stringify(res.skipReasons));
+  });
+
   await test('sconto ricavato da Qricambi lontano da quello SIRJ: riga non confermata', async () => {
-    const tr = mkTr('30.00', '100.00', '0');
-    tr.td[1].inp.value = '100.00';
-    const perRiga = new Map([[tr, { fonte: 'famiglia', sconto: 30 }]]);
-    // listino cambiato sotto i piedi: Qricambi ricava lo sconto da 90 → 22,22
-    const orig = tr.td[1].inp;
-    const { res } = await (async () => {
-      const r = esegui([tr], { punti: 20, perRiga });
-      orig.value = '90.00';
-      return r;
-    })();
+    const tr = mkTr('30.00', '100.00', '0', 'L1');
+    const perRiga = new Map([[tr, { code: 'L1', riga: { fonte: 'famiglia', sconto: 30 } }]]);
+    const p = esegui([tr], { punti: 20, perRiga });
+    tr.td[1].inp.value = '90.00'; // Qricambi ricava lo sconto da 90: 22,22
+    const { res } = await p;
     assert.strictEqual(res.ok, 0);
     assert.strictEqual(res.skipReasons.venditaNonConfermata, 1);
+  });
+
+  await test('riga cambiata dopo la lettura (codice diverso o riga nuova con codice): saltata, niente scritture', async () => {
+    const cambiata = mkTr('25.00', '100.00', '0', 'NUOVO');
+    const nuova = mkTr('25.00', '100.00', '0', 'Z1');
+    const perRiga = new Map([[cambiata, { code: 'VECCHIO', riga: { fonte: 'famiglia', sconto: 30 } }]]);
+    const { res, scritture } = await esegui([cambiata, nuova], { punti: 20, perRiga });
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skipReasons.scontoNonLetto, 2);
+    assert.strictEqual(scritture.length, 0);
+  });
+
+  await test('tolleranzaSconto: 0,1 sui listini alti, 0,5/listino sui bassi', () => {
+    assert.strictEqual(tolleranzaSconto(1000), 0.1);
+    assert.ok(Math.abs(tolleranzaSconto(2) - 0.27) < 1e-9);
   });
 
   // ── leggiSconti: blocchi da 60, primo errore ferma tutto ───────────────
@@ -344,6 +372,13 @@ async function test(name, fn) {
     assert.strictEqual(chiamate.length, 2);
   });
 
+  await test('leggiSconti: flag spenta al secondo blocco dopo un blocco attivo = errore', async () => {
+    const { leggi } = mkLeggi((b, n) => (n === 2 ? [200, { attivo: false }] : attivo(b)));
+    const e = await leggi(5, righe(70));
+    assert.strictEqual(e.stato, 'errore');
+    assert.ok(/cambiata/.test(e.motivo));
+  });
+
   await test('leggiSconti: rete giù, corpo non JSON, flag spenta', async () => {
     assert.strictEqual((await mkLeggi(() => 'rete').leggi(5, righe(3))).stato, 'errore');
     assert.strictEqual((await mkLeggi(() => [502, undefined]).leggi(5, righe(3))).stato, 'errore');
@@ -352,11 +387,13 @@ async function test(name, fn) {
 
   // ── cablaggio ──────────────────────────────────────────────────────────
   await test('errore sugli sconti: esegui ritorna prima di eseguiConIndici, toast senza prezzi', () => {
-    const corpo = SRC.slice(SRC.indexOf('async function esegui('), SRC.indexOf('function righeConCodice'));
+    const corpo = SRC.slice(SRC.indexOf('async function esegui('), SRC.indexOf('function righeDaPrezzare'));
     const iErr = corpo.indexOf("sconti.stato === 'errore'");
     const iCiclo = corpo.indexOf('eseguiConIndici(');
     assert.ok(iErr > 0 && iCiclo > iErr, 'controllo dell\'errore dopo il ciclo di scrittura');
     assert.ok(/Nessun prezzo scritto/.test(SRC));
+    assert.ok(/S\.scontoSirjCliente !== false/.test(corpo), 'interruttore scontoSirjCliente non letto in esegui');
+    assert.ok(/codici delle righe non letti/.test(corpo), 'righe senza nessun codice non trattate come errore');
     assert.ok(/ar-row-nosirj/.test(SRC.slice(SRC.indexOf('async function annullaPricing'))), 'ANNULLA non toglie il giallo');
   });
 

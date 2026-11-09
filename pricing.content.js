@@ -719,22 +719,27 @@
       const blocco = righe.slice(i, i + MAX_RIGHE_SCONTI);
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), SCONTI_TIMEOUT_MS);
-      let esito;
+      const body = JSON.stringify({ numero, righe: blocco, ext_version: versioneEstensione() });
+      let res;
       try {
-        const res = await fetch(url, {
+        res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-API-Key': S.apiKey },
-          body: JSON.stringify({ numero, righe: blocco, ext_version: versioneEstensione() }),
-          signal: ctrl.signal,
+          body, signal: ctrl.signal,
         });
-        let data = null;
-        try { data = await res.json(); } catch (e) { /* corpo non JSON */ }
-        esito = esitoSconti(res.status, data, blocco.length);
       } catch (e) {
         console.warn(TAG, 'sconti cliente: server non raggiungibile o lento', e);
-        esito = esitoSconti(0, null, blocco.length);
-      } finally {
         clearTimeout(timer);
+        return ctrl.signal.aborted
+          ? { stato: 'errore', motivo: `SIRJ troppo lento (oltre ${SCONTI_TIMEOUT_MS / 1000} s)` }
+          : esitoSconti(0, null, blocco);
+      }
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* corpo non JSON */ }
+      clearTimeout(timer);
+      let esito = esitoSconti(res.status, data, blocco);
+      if (esito.stato === 'spento' && tutte.length) {
+        esito = { stato: 'errore', motivo: 'risposta del server cambiata durante la lettura' };
       }
       if (esito.stato !== 'attivo') {
         console.log(TAG, `sconti cliente C/${numero}:`, esito);
@@ -819,6 +824,7 @@
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
           (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
+          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -842,13 +848,14 @@
           (rC ? toastLine('o', 'Regola C', rC) : '') +
           (nTipo('sirj') ? toastLine('g', 'Sconto SIRJ', nTipo('sirj')) : '') +
           (nTipo('netto') ? toastLine('g', 'Netto SIRJ', nTipo('netto')) : '') +
-          (nTipo('senzaRegola') ? toastLine('o', `Non in SIRJ o senza regola, sconto −${punti} (gialle)`, nTipo('senzaRegola')) : '') +
+          (nTipo('senzaRegola') ? toastLine('o', punti ? `Non in SIRJ o senza regola, sconto −${punti} (gialle)` : 'Non in SIRJ o senza regola, regola di sempre (gialle)', nTipo('senzaRegola')) : '') +
           (nTipo('sottoCosto') ? toastLine('o', 'SIRJ sotto l\'acquisto, regola di sempre (gialle)', nTipo('sottoCosto')) : '') +
           (nTipo('senzaListino') ? toastLine('o', 'Senza listino, regola di sempre (gialle)', nTipo('senzaListino')) : '') +
           (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
           (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
           (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
           (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
+          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
           (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
           (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
           (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
@@ -967,28 +974,32 @@
     const table = trovaTabellaPreventivo();
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
-    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 });
+    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 });
     const col = mappaColonne(table);
     if (!col) return vuoto();
 
     // #5739: sconti SIRJ del cliente, letti prima di scrivere qualsiasi prezzo.
     let sconti = null;
-    if (numeroCliente) {
-      const righe = righeConCodice(table, col);
+    // Interruttore `scontoSirjCliente` spento: regole di sempre per tutti.
+    if (numeroCliente && S.scontoSirjCliente !== false) {
+      const tutte = righeDaPrezzare(table, col);
+      const righe = tutte.filter(r => r.code);
       if (col.codice === undefined) {
         sconti = { stato: 'errore', motivo: 'colonna Codice non trovata nella tabella' };
       } else if (righe.length) {
         sconti = await leggiSconti(numeroCliente, righe.map(({ code, manufacturer }) => ({ code, manufacturer })));
+      } else if (tutte.length) {
+        sconti = { stato: 'errore', motivo: 'codici delle righe non letti' };
       }
       if (sconti && sconti.stato === 'errore') {
         return { ...vuoto(), error: 'sconti SIRJ del cliente non letti: ' + sconti.motivo, sconti };
       }
       if (sconti && sconti.stato === 'attivo') {
         const perRiga = new Map();
-        righe.forEach((r, i) => perRiga.set(r.tr, sconti.righe[i]));
+        righe.forEach((r, i) => perRiga.set(r.tr, { code: r.code, riga: sconti.righe[i] }));
         sconti = { ...sconti, perRiga };
       } else {
-        sconti = null; // cliente fuori flag (o nessuna riga con codice): regole di sempre
+        sconti = null; // cliente fuori flag o tabella senza righe: regole di sempre
       }
     }
 
@@ -1008,8 +1019,8 @@
     return res;
   }
 
-  // #5739: le righe che eseguiConIndici prezzera', con codice e costruttore.
-  function righeConCodice(table, col) {
+  // #5739: le righe che eseguiConIndici prezzera', con codice (anche vuoto) e costruttore.
+  function righeDaPrezzare(table, col) {
     if (col.codice === undefined) return [];
     const minCols = colonneMinime(col);
     const out = [];
@@ -1017,7 +1028,6 @@
       const tds = tr.querySelectorAll('td');
       if (tds.length < minCols) continue;
       const code = testoCodice(tds[col.codice]);
-      if (!code) continue;
       out.push({ tr, code, manufacturer: col.costruttore !== undefined ? testoCostruttore(tds[col.costruttore]) : '' });
     }
     return out;
@@ -1321,7 +1331,7 @@
   //   attivo  { punti, righe } nello stesso ordine delle righe mandate
   //   errore  cliente nella flag ma sconti non letti: nessun prezzo scritto
   //           (prezzare come sempre darebbe a un privato lo sconto da officina)
-  function esitoSconti(status, body, nRighe) {
+  function esitoSconti(status, body, inviate) {
     const b = (body && typeof body === 'object') ? body : {};
     if (status === 404 || (status === 200 && b.attivo === false)) return { stato: 'spento' };
     if (status === 200 && b.attivo === true) {
@@ -1329,14 +1339,13 @@
       if (!(Number.isInteger(punti) && punti >= 0 && punti <= 99)) {
         return { stato: 'errore', motivo: 'risposta del server senza punti_senza_regola' };
       }
-      if (!Array.isArray(b.righe) || b.righe.length !== nRighe) {
-        return { stato: 'errore', motivo: 'righe della risposta diverse da quelle mandate' };
-      }
+      const ok = Array.isArray(b.righe) && b.righe.length === inviate.length &&
+        b.righe.every((r, i) => r && typeof r === 'object' && r.code === inviate[i].code);
+      if (!ok) return { stato: 'errore', motivo: 'righe della risposta diverse da quelle mandate' };
       return { stato: 'attivo', punti, righe: b.righe };
     }
-    if (status === 504 || status === 0) {
-      return { stato: 'errore', motivo: status ? 'SIRJ troppo lento' : 'server non raggiungibile' };
-    }
+    if (status === 504) return { stato: 'errore', motivo: 'SIRJ troppo lento' };
+    if (status === 0) return { stato: 'errore', motivo: 'server non raggiungibile' };
     return { stato: 'errore', motivo: `server ${status}` };
   }
 
@@ -1355,7 +1364,7 @@
     const diSempre = (tipo) => ({ ...calcolaRiga(acquisto, listino, S, recupero), tipo });
     if (!sirj) return diSempre(null);
     const r = (sirj.riga && typeof sirj.riga === 'object') ? sirj.riga : {};
-    const sconto = r.sconto === null || r.sconto === undefined ? NaN : Number(r.sconto);
+    const sconto = typeof r.sconto === 'number' ? r.sconto : NaN;
     if (FONTI_SCONTO_SIRJ.includes(r.fonte) && Number.isFinite(sconto) && sconto >= 0 && sconto < 100) {
       if (!(listino > 0)) return diSempre('senzaListino');
       const vendita = Math.round(Math.round(listino * 100) * (100 - sconto) / 100) / 100;
@@ -1363,7 +1372,7 @@
       return { regola: 'S', scontoCliente: sconto, scontoCalcolato: sconto, listinoFin: listino,
         prezzoClienteTarget: vendita, recuperoApplicato: false, tipo: 'sirj' };
     }
-    const netto = r.netto === null || r.netto === undefined ? NaN : Number(r.netto);
+    const netto = typeof r.netto === 'number' ? r.netto : NaN;
     if (r.fonte === 'netto' && Number.isFinite(netto) && netto > 0) {
       const vendita = Math.round(netto * 100) / 100;
       if (vendita < acquisto) return diSempre('sottoCosto');
@@ -1382,15 +1391,23 @@
       recuperoApplicato: false, tipo: 'senzaRegola' };
   }
 
-  // Celle minime di una riga da prezzare (eseguiConIndici, righeConCodice).
+  // Scarto ammesso fra lo sconto SIRJ e quello che Qricambi ricava dalla vendita
+  // al centesimo: mezzo centesimo sul listino vale 0,5/listino punti, piu' il
+  // suo arrotondamento a 2 decimali (listino 2,00 e 27,8 → vendita 1,44 → 28).
+  function tolleranzaSconto(listino) {
+    return Math.max(0.1, 0.5 / listino + 0.02);
+  }
+
+  // Celle minime di una riga da prezzare (eseguiConIndici, righeDaPrezzare).
   function colonneMinime(col) {
     return Math.max(col.acquisto ?? 0, col.listino ?? 0, col.sconto ?? 0) + 1;
   }
 
   // ── fine calcolaRiga ──
 
-  // `sconti` (#5739) = null, o { punti, perRiga: Map tr → riga di sconti-cliente }:
-  // una riga senza voce (codice vuoto) vale come non in SIRJ.
+  // `sconti` (#5739) = null, o { punti, perRiga: Map tr → { code, riga } }: una
+  // riga senza codice vale come non in SIRJ; una riga con un codice diverso da
+  // quello mandato al bridge, o assente dalla mappa, e' saltata (scontoNonLetto).
   async function eseguiConIndici(table, col, onProgress, recupero, sconti) {
     const minCols = colonneMinime(col);
 
@@ -1398,7 +1415,7 @@
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
@@ -1441,8 +1458,17 @@
       if (listinoInp) snapFields.push({ input: listinoInp, orig: listinoInp.value });
       if (venditaInp) snapFields.push({ input: venditaInp, orig: venditaInp.value });
 
-      const sirj = sconti
-        ? { punti: sconti.punti, riga: sconti.perRiga.get(tr) || { fonte: 'non_in_sirj' } } : null;
+      let sirj = null;
+      if (sconti) {
+        const voce = sconti.perRiga.get(tr);
+        const code = col.codice !== undefined ? testoCodice(tds[col.codice]) : '';
+        if (voce ? voce.code !== code : code) {
+          console.warn(TAG, `Riga ${ri}: codice ${code || '(vuoto)'} cambiato dopo la lettura degli sconti, riga saltata`);
+          skip++; skipReasons.scontoNonLetto++;
+          continue;
+        }
+        sirj = { punti: sconti.punti, riga: voce ? voce.riga : { fonte: 'non_in_sirj' } };
+      }
       const { regola, scontoCliente, listinoFin, prezzoClienteTarget, recuperoApplicato, tipo } =
         prezzoRiga(acquisto, listino, S, recupero, sirj);
       // Sconto SIRJ o netto: la vendita e' la verita' e Qricambi ne ricava lo
@@ -1485,7 +1511,7 @@
           // SIRJ (#5739) niente riscrittura: lo sconto ricavato dalla vendita al
           // centesimo puo' differire di qualche centesimo di punto.
           const scontoOk = venditaEsatta
-            ? Math.abs((parseNum(scontoInp.value) ?? NaN) - scontoCliente) < 0.1
+            ? Math.abs((parseNum(scontoInp.value) ?? NaN) - scontoCliente) < tolleranzaSconto(listinoFin)
             : await setVueInput(scontoInp, scontoCliente);
           if (!scontoOk) {
             console.warn(TAG, `Riga ${ri}: riscrittura sconto ${scontoCliente} dopo Vendita non confermata`);
