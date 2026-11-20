@@ -4,18 +4,8 @@
 // funzioni vengono estratte dal sorgente e girano su un mini-DOM (niente jsdom nel repo).
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
-
-function estrai(nome) {
-  const start = src.indexOf(`function ${nome}(`);
-  assert.ok(start >= 0, `${nome} non trovata in pricing.content.js`);
-  const end = src.indexOf('\n  }\n', start);
-  assert.ok(end > start, `fine di ${nome} non trovata`);
-  return src.slice(start, end + 4);
-}
+const { estrai } = require('./_estrai');
 
 // ── Mini-DOM: solo cio' che usano mappaColonne e injectUtileColumn ──
 class El {

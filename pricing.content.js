@@ -323,6 +323,7 @@
     if (isNaN(n)) return null;
     return neg ? -n : n;
   }
+  // ── fine parseNum
 
   // ── VUE 3 COMPATIBLE INPUT SETTER (v6.1) ──────────────────
   //
@@ -539,6 +540,7 @@
 
     return raw;
   }
+  // ── fine mappaColonne
 
   // ── LEGGI VALORE DA CELLA ─────────────────────────────────
   function leggiCella(td) {
@@ -556,11 +558,13 @@
     if (inp) return parseNum(inp.value);
     return fromText;
   }
+  // ── fine leggiCella
 
   function inputDiCella(td) {
     if (!td) return null;
     return td.querySelector('input');
   }
+  // ── fine inputDiCella
 
   // arauto#5739: codice e costruttore della riga, come li manda l'import. Il
   // codice sta nel chip della colonna Codice (la colonna «Da ricerca» e' il
@@ -571,12 +575,14 @@
     const chip = td.querySelector('.chip__content');
     return String((chip || td).textContent || '').trim();
   }
+  // ── fine testoCodice
 
   function testoCostruttore(td) {
     if (!td) return '';
     const inp = td.querySelector('input');
     return String(inp ? inp.value : td.textContent || '').trim();
   }
+  // ── fine testoCostruttore
 
   // ── SETTINGS & DEFAULTS ──────────────────────────────────
   // DEFAULTS is loaded from defaults.js (shared with options.js)
@@ -664,6 +670,7 @@
   function versioneEstensione() {
     try { return chrome.runtime.getManifest().version; } catch (e) { return null; }
   }
+  // ── fine versioneEstensione
   async function leggiFascia() {
     const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
     if (errore) return errore;
@@ -1104,6 +1111,7 @@
       }
     });
   }
+  // ── fine injectUtileColumn
 
   // ── CALCOLO PREZZO RIGA (pura, testata da tests/test_calcola_riga.js) ──
   // Lo sconto cliente è sempre un intero di 1-2 cifre (0-99), anche con

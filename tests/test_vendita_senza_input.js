@@ -16,15 +16,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
-
-function estrai(nome) {
-  const start = SRC.indexOf(`function ${nome}(`);
-  assert.ok(start >= 0, `${nome} non trovata in pricing.content.js`);
-  const end = SRC.indexOf('\n  }\n', start);
-  assert.ok(end > start, `fine di ${nome} non trovata`);
-  return SRC.slice(start, end + 4);
-}
+const { SRC, estrai } = require('./_estrai');
 
 const calcStart = SRC.indexOf('function scontoIntero');
 const calcEnd = SRC.indexOf('// ── fine calcolaRiga');

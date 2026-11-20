@@ -24,7 +24,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
+const { SRC, estrai } = require('./_estrai');
 const DEFAULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8');
 const calcStart = SRC.indexOf('function scontoIntero');
 const calcEnd = SRC.indexOf('// ── fine calcolaRiga');
@@ -32,13 +32,6 @@ assert.ok(calcStart > 0 && calcEnd > calcStart, 'blocco calcolaRiga non trovato'
 const cicloStart = SRC.indexOf('async function eseguiConIndici');
 const cicloEnd = SRC.indexOf('// ── ANNULLA');
 assert.ok(cicloStart > 0 && cicloEnd > cicloStart, 'eseguiConIndici non trovata');
-
-function estrai(nome) {
-  const start = SRC.indexOf(`function ${nome}(`);
-  assert.ok(start >= 0, `${nome} non trovata in pricing.content.js`);
-  const end = SRC.indexOf('\n  }\n', start);
-  return SRC.slice(start, end + 4);
-}
 
 const ctx = vm.createContext({ URL });
 vm.runInContext(DEFAULTS_SRC, ctx);
