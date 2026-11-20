@@ -20,13 +20,15 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const { idsFromHref, backendUrlProblem } = (() => {
+const { idsFromHref, backendUrlProblem, overrideClifor, fallbackClifor } = (() => {
   const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c),
+    overrideClifor: vm.runInContext('overrideClifor', c), fallbackClifor: vm.runInContext('fallbackClifor', c) };
 })();
 
 
+const { caricaDefaults } = require('./_estrai');
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', 'import.content.js'), 'utf8');
 
@@ -53,11 +55,11 @@ function allText(el, out = []) {
 }
 
 // Esegue handleClick con la sequenza di risposte fetch data; ritorna storico + modal.
-async function runImport({ responses, overrideCliforNumero = 0, confirms = [true, true] }) {
+async function runImport({ responses, overrideCliforNumero = 0, fallback = 5, confirms = [true, true] }) {
   const store = {
     lastPatchPayload: PAYLOAD,
     importHistory: [],
-    fallbackCliforNumero: 5,
+    fallbackCliforNumero: fallback,
     apiKey: 'k', backendUrl: 'http://localhost:5008/api/quote-import',
     overrideCliforNumero,
   };
@@ -65,9 +67,10 @@ async function runImport({ responses, overrideCliforNumero = 0, confirms = [true
   const body = fakeEl();
   const ctx = {
     console: { log() {} },
-    DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
+    DEFAULTS: caricaDefaults(),  // quelli veri: handleClick legge cfg = get(DEFAULTS)
     idsFromHref,
     backendUrlProblem,
+    overrideClifor, fallbackClifor,
     URL,
     chrome: {
       runtime: { openOptionsPage() {} },
@@ -127,6 +130,19 @@ const R200 = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno: 2
     assert.strictEqual(r.history[0].sirjAnno, 2026);
     assert.ok(r.modalText.includes('Override cliente SIRJ #5'),
       'modal senza riga override: ' + JSON.stringify(r.modalText));
+  });
+
+  await test('il fallback si legge da Opzioni a ogni import (non una volta al caricamento)', async () => {
+    const r = await runImport({ responses: [{ ...R422 }, { ...R200 }], fallback: 9 });
+    assert.strictEqual(r.sent[1].override_clifor_numero, 9);
+    assert.ok(r.modalText.includes('Override cliente SIRJ #9'));
+  });
+
+  await test('fallback salvato rotto (testo, 0, decimale) -> default 5, mai un override sbagliato', async () => {
+    for (const rotto of ['abc', 0, 2.5, '']) {
+      const r = await runImport({ responses: [{ ...R422 }, { ...R200 }], fallback: rotto });
+      assert.strictEqual(r.sent[1].override_clifor_numero, 5, `fallback ${JSON.stringify(rotto)}`);
+    }
   });
 
   await test('import normale senza 422 resta ok, senza riga override', async () => {

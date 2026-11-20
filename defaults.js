@@ -52,6 +52,19 @@ const DEFAULTS = {
   // lasciava il Pricing a chiedere di salvare un preventivo che non si salva.
 };
 
+// Numero cliente SIRJ: l'intero >= `min` che `v` rappresenta, altrimenti null. Stringa
+// vuota, testo, decimali, NaN e negativi non sono numeri validi (niente arrotondamenti
+// in silenzio). Unica copia, usata da import, pricing (leggiFascia) e Opzioni.
+function cliforNumeroIntero(v, min) {
+  if (v == null || (typeof v === "string" && v.trim() === "")) return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= min ? n : null;
+}
+// Override manuale: intero >= 1, altrimenti 0 (= nessun override, matching automatico).
+function overrideClifor(v) { return cliforNumeroIntero(v, 1) ?? 0; }
+// Cliente generico del retry: intero >= 1, altrimenti il default (mai 0 o un valore rotto).
+function fallbackClifor(v) { return cliforNumeroIntero(v, 1) ?? DEFAULTS.fallbackCliforNumero; }
+
 // Indirizzi a cui l'estensione puo' inviare: gli stessi di manifest.json:host_permissions
 // (tests/test_import_backend_url_guard.js verifica che coincidano). Un backendUrl fuori
 // da questi non arriva mai a fetch (#68): Chrome lo bloccherebbe comunque, ma con un

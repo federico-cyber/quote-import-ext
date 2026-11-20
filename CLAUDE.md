@@ -48,6 +48,11 @@ ogni script di app.qricambi.com. Per questo non c'e' un canale a token: sarebbe 
 backend resta protetto dalla sua API key e dal controllo dell'indirizzo (#68); la mappa
 `clientiPreventivo` tiene solo gli ultimi 20 preventivi.
 
+**Numeri cliente SIRJ (#71):** override e fallback si normalizzano in un solo posto (`cliforNumeroIntero`,
+`overrideClifor`, `fallbackClifor` in `defaults.js`): interi, override >= 0 (0 = nessuno), fallback >= 1
+(sennò il default 5). Il fallback si legge da `cfg` a ogni import; le Opzioni rifiutano con un errore
+visibile i valori non interi, la Regola B con Moltiplicatore×(1−Sconto/100) <= 1 e le soglie utile con Basso >= Alto.
+
 ### Conferma del salvataggio Qricambi (arauto#1990)
 
 `injected.js` pubblica il payload **solo dopo** che Qricambi ha confermato la PATCH

@@ -713,7 +713,7 @@
   async function leggiFascia() {
     const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
     if (errore) return errore;
-    const override = parseInt(S.overrideCliforNumero, 10);
+    const override = overrideClifor(S.overrideCliforNumero);
     let { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
     let scelta = null;
     if (!(override > 0)) {

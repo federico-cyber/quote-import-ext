@@ -29,10 +29,11 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const { idsFromHref, backendUrlProblem } = (() => {
+const { idsFromHref, backendUrlProblem, overrideClifor, fallbackClifor } = (() => {
   const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c),
+    overrideClifor: vm.runInContext('overrideClifor', c), fallbackClifor: vm.runInContext('fallbackClifor', c) };
 })();
 
 
@@ -111,6 +112,7 @@ function setupImport(fetchImpl, sharedWindow) {
     idsFromHref,
     AbortController,
     backendUrlProblem,
+    overrideClifor, fallbackClifor,
     URL,
     chrome: {
       runtime: { openOptionsPage() {} },

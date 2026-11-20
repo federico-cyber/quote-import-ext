@@ -6,15 +6,6 @@
   const TAG = "[QUOTE-IMPORT v1.2.11]";
   console.log(TAG, "content script loaded (isolated)");
 
-  // ── 0. Valore fallback clifor — letto da storage, default 5 ──────────
-  // Inizializzato subito; se handleClick() viene invocato prima del callback
-  // (improbabile ma possibile), usa comunque il default sicuro.
-  let FALLBACK_CLIFOR_NUMERO = 5;
-  chrome.storage.local.get({ fallbackCliforNumero: 5 }, ({ fallbackCliforNumero }) => {
-    FALLBACK_CLIFOR_NUMERO = fallbackCliforNumero;
-    console.log(TAG, "fallbackCliforNumero loaded:", FALLBACK_CLIFOR_NUMERO);
-  });
-
   // ── 0b. Interruttore #49 — letto da storage, default acceso ─────────
   // true: il preventivo "aperto" si segna solo su find/<id> riuscita
   // (AR_QUOTE_OPEN, 2xx). false: come prima, gia' all'invio (AR_QUOTE_OPEN_INTENT).
@@ -167,7 +158,9 @@
 
     // Override manuale codice cliente (configurabile in Opzioni, issue #9)
     // Se cfg.overrideCliforNumero > 0, lo inietta nel payload e bypassa il matching automatico.
-    const manualOverride = Number(cfg.overrideCliforNumero) || 0;
+    const manualOverride = overrideClifor(cfg.overrideCliforNumero);
+    // Letto da cfg a ogni import (non una volta al caricamento): intero >= 1, sennò il default.
+    const fallbackCliforNumero = fallbackClifor(cfg.fallbackCliforNumero);
 
     const itemsPreview = payload.items.map((it, i) =>
       `  ${i + 1}. ${it.code || "(no code)"} ${it.manufacturer || ""} — ${it.description || ""} (qty ${it.num}, €${it.price})`
@@ -264,13 +257,13 @@
         const qrCode = body.customer_hint?.CustomerCode || "?";
         const retry = confirm(
           `Cliente non trovato in SIRJ (codice Qricambi: ${qrCode}).\n\n` +
-          `Importare comunque come cliente generico SIRJ #${FALLBACK_CLIFOR_NUMERO}?`
+          `Importare comunque come cliente generico SIRJ #${fallbackCliforNumero}?`
         );
         if (retry) {
           fallbackUsed = true;
           ({ res, body, incerto } = await postQuote({
             ...payload,
-            override_clifor_numero: FALLBACK_CLIFOR_NUMERO,
+            override_clifor_numero: fallbackCliforNumero,
           }));
         } else {
           await appendToHistory({ ...baseRecord, status: "err",
@@ -283,9 +276,8 @@
       if (incerto) {
         await segnalaEsitoIncerto(`il bridge ha risposto ${res.status} con un corpo illeggibile`);
       } else if (res.status === 200) {
-        const usedOverride = manualOverride > 0 ? manualOverride :
-          (fallbackUsed || payload.override_clifor_numero !== undefined
-            ? FALLBACK_CLIFOR_NUMERO : 0);
+        const usedOverride = manualOverride > 0 ? manualOverride
+          : (fallbackUsed ? fallbackCliforNumero : 0);
         const isFallback = usedOverride > 0;
         const suffix = isFallback ? `Override cliente SIRJ #${usedOverride}` : "";
         const unmatched = Array.isArray(body.unmatched_articles) ? body.unmatched_articles : [];

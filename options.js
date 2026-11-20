@@ -70,6 +70,29 @@ function validateAll() {
     if (isNaN(v)) { showFieldError(id, `${label}: valore non valido`); valid = false; }
     else if (v < min || v > max) { showFieldError(id, `${label}: deve essere tra ${min} e ${max}`); valid = false; }
   }
+  // Coerenza fra campi (ognuno ha gia' il suo intervallo, ma la coppia puo' non avere senso).
+  const num = (id) => parseFloat(document.getElementById(id).value);
+  const bMult = num('reg-b-multiplier'), bDisc = num('reg-b-discount');
+  if (!isNaN(bMult) && !isNaN(bDisc) && bMult * (1 - bDisc / 100) <= 1) {
+    showFieldError('reg-b-discount',
+      `Regola B: Moltiplicatore × (1 − Sconto/100) = ${(bMult * (1 - bDisc / 100)).toFixed(2)}: deve restare sopra 1, altrimenti vende sotto l'acquisto`);
+    valid = false;
+  }
+  const lo = num('ui-threshold-low'), hi = num('ui-threshold-high');
+  if (!isNaN(lo) && !isNaN(hi) && lo >= hi) {
+    showFieldError('ui-threshold-high', 'Soglia Utile Alto: deve essere maggiore della Soglia Utile Basso');
+    valid = false;
+  }
+  // Numeri cliente SIRJ (#71): interi, senza arrotondamenti silenziosi.
+  const ovRaw = document.getElementById('overrideCliforNumero').value;
+  if (String(ovRaw).trim() !== '' && cliforNumeroIntero(ovRaw, 0) === null) {
+    showFieldError('overrideCliforNumero', 'Override Codice Cliente: serve un numero intero (0 = nessun override)');
+    valid = false;
+  }
+  if (cliforNumeroIntero(document.getElementById('fallbackCliforNumero').value, 1) === null) {
+    showFieldError('fallbackCliforNumero', 'CLIFOR fallback: serve un numero intero da 1 in su');
+    valid = false;
+  }
   // Indirizzo del server (#68): vuoto, relativo o fuori dai permessi non si salva.
   const urlProblema = backendUrlProblem(document.getElementById('backendUrl').value);
   if (urlProblema) { showFieldError('backendUrl', 'Indirizzo del server: ' + urlProblema); valid = false; }
@@ -102,8 +125,8 @@ function saveSettings() {
     uiThresholdHigh:  getNum('ui-threshold-high'),
     backendUrl:            document.getElementById('backendUrl').value.trim(),
     apiKey:                document.getElementById('apiKey').value.trim(),
-    overrideCliforNumero:  getNum('overrideCliforNumero'),
-    fallbackCliforNumero:  Math.max(0, Math.floor(getNum('fallbackCliforNumero') || 5)),
+    overrideCliforNumero:  overrideClifor(document.getElementById('overrideCliforNumero').value),
+    fallbackCliforNumero:  cliforNumeroIntero(document.getElementById('fallbackCliforNumero').value, 1),
     importAttendeInVolo:   document.getElementById('importAttendeInVolo').checked,
     quoteOpenSoloOk:       document.getElementById('quoteOpenSoloOk').checked,
     regBSottoCosto:        document.getElementById('regBSottoCosto').checked,

@@ -25,10 +25,11 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const { idsFromHref, backendUrlProblem } = (() => {
+const { idsFromHref, backendUrlProblem, overrideClifor, fallbackClifor } = (() => {
   const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c),
+    overrideClifor: vm.runInContext('overrideClifor', c), fallbackClifor: vm.runInContext('fallbackClifor', c) };
 })();
 
 
@@ -78,6 +79,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
     backendUrlProblem,
+    overrideClifor, fallbackClifor,
     URL,
     chrome: {
       runtime: { openOptionsPage() {} },

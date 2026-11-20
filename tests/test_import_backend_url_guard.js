@@ -41,6 +41,9 @@ const fromDefaults = (name) => {
 };
 const idsFromHref = fromDefaults('idsFromHref');
 const backendUrlProblem = fromDefaults('backendUrlProblem');
+const cliforNumeroIntero = fromDefaults('cliforNumeroIntero');
+const overrideClifor = fromDefaults('overrideClifor');
+const fallbackClifor = fromDefaults('fallbackClifor');
 const DEFAULTS = fromDefaults('DEFAULTS');
 
 const VALIDO = 'http://100.86.223.69:5008/api/quote-import';
@@ -77,6 +80,7 @@ function makeImportEnv({ backendUrl = VALIDO, apiKey = 'k' } = {}) {
     DEFAULTS: { apiKey: '', backendUrl: '', overrideCliforNumero: 0 },
     idsFromHref,
     backendUrlProblem,
+    overrideClifor, fallbackClifor,
     URL,
     AbortController,
     clearTimeout() {},
@@ -112,7 +116,7 @@ function makeImportEnv({ backendUrl = VALIDO, apiKey = 'k' } = {}) {
 }
 
 // ── harness di options.js ───────────────────────────────────────────────
-function makeOptionsEnv({ backendUrl }) {
+function makeOptionsEnv({ backendUrl, campi = {} }) {
   const els = {};
   const el = (id) => (els[id] = els[id] || {
     id, value: '', checked: false, style: {}, textContent: '', className: '',
@@ -129,6 +133,7 @@ function makeOptionsEnv({ backendUrl }) {
   };
   const ctx = {
     document, DEFAULTS, confirm: () => true, URL, backendUrlProblem,
+    cliforNumeroIntero, overrideClifor, fallbackClifor,
     setTimeout: () => 0,
     chrome: { storage: { local: {
       get(keys, cb) { cb({ ...DEFAULTS, ...store }); },
@@ -147,9 +152,10 @@ function makeOptionsEnv({ backendUrl }) {
     fallbackCliforNumero: 'fallbackCliforNumero',
   };
   for (const [id, k] of Object.entries(mappa)) el(id).value = String(DEFAULTS[k]);
+  for (const [id, v] of Object.entries(campi)) el(id).value = String(v);
   el('backendUrl').value = backendUrl;
   el('apiKey').value = 'chiave';
-  return { writes, status: el('status'), save: () => el('save-btn').on_click() };
+  return { writes, el, status: el('status'), save: () => el('save-btn').on_click() };
 }
 
 const cases = [];
@@ -258,6 +264,49 @@ test('Opzioni: indirizzo valido -> salva (backendUrl ripulito)', () => {
   assert.strictEqual(o.writes.length, 1);
   assert.strictEqual(o.writes[0].backendUrl, VALIDO);
   assert.strictEqual(o.writes[0].apiKey, 'chiave');
+});
+
+// ── 5. Opzioni: validazioni di coerenza e numeri cliente (#71) ──────────
+const RIFIUTI = [
+  ['fallback 0', { fallbackCliforNumero: 0 }, 'fallbackCliforNumero'],
+  ['fallback decimale', { fallbackCliforNumero: 5.5 }, 'fallbackCliforNumero'],
+  ['fallback vuoto', { fallbackCliforNumero: '' }, 'fallbackCliforNumero'],
+  ['override negativo', { overrideCliforNumero: -3 }, 'overrideCliforNumero'],
+  ['override decimale', { overrideCliforNumero: 2.5 }, 'overrideCliforNumero'],
+  ['override testo', { overrideCliforNumero: 'abc' }, 'overrideCliforNumero'],
+  ['Regola B che vende sotto costo (1.5 x 0.5)', { 'reg-b-multiplier': 1.5, 'reg-b-discount': 50 }, 'reg-b-discount'],
+  ['Regola B a pareggio (2 x 0.5)', { 'reg-b-multiplier': 2, 'reg-b-discount': 50 }, 'reg-b-discount'],
+  ['soglie invertite', { 'ui-threshold-low': 40, 'ui-threshold-high': 20 }, 'ui-threshold-high'],
+  ['soglie uguali', { 'ui-threshold-low': 20, 'ui-threshold-high': 20 }, 'ui-threshold-high'],
+];
+for (const [nome, campi, campoErrore] of RIFIUTI) {
+  test(`Opzioni: ${nome} -> errore visibile sul campo, niente salvataggio`, () => {
+    const o = makeOptionsEnv({ backendUrl: VALIDO, campi });
+    o.save();
+    assert.strictEqual(o.writes.length, 0, 'salvato un valore non valido');
+    assert.ok(o.el(campoErrore).style.borderColor, 'campo senza segno di errore');
+    assert.ok(/corregg/i.test(o.status.textContent), o.status.textContent);
+  });
+}
+
+test('Opzioni: override 0 e fallback intero validi -> salvati come interi', () => {
+  const o = makeOptionsEnv({ backendUrl: VALIDO, campi: { overrideCliforNumero: 0, fallbackCliforNumero: 7 } });
+  o.save();
+  assert.strictEqual(o.writes.length, 1);
+  assert.strictEqual(o.writes[0].overrideCliforNumero, 0);
+  assert.strictEqual(o.writes[0].fallbackCliforNumero, 7);
+});
+
+test('helper numeri cliente: interi >= minimo, il resto cade sul valore sicuro', () => {
+  assert.strictEqual(cliforNumeroIntero('12', 1), 12);
+  for (const x of ['', ' ', null, undefined, 'abc', 1.5, -1, NaN, Infinity]) assert.strictEqual(cliforNumeroIntero(x, 0), null);
+  assert.strictEqual(cliforNumeroIntero(0, 0), 0);
+  assert.strictEqual(overrideClifor(0), 0);
+  assert.strictEqual(overrideClifor('9'), 9);
+  assert.strictEqual(overrideClifor('9.5'), 0);
+  assert.strictEqual(fallbackClifor('abc'), DEFAULTS.fallbackCliforNumero);
+  assert.strictEqual(fallbackClifor(0), DEFAULTS.fallbackCliforNumero);
+  assert.strictEqual(fallbackClifor('8'), 8);
 });
 
 (async () => {
