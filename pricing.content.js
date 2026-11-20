@@ -8,10 +8,10 @@
      → Se sconto_fornitore > 78pp:
          REGOLA C — ricarico fisso 77pp sul netto
          prezzoCliente = acquisto × 1.77
-         scontoCliente = (1 - prezzoCliente/listino) × 100  [arrotondato a 5pp]
+         scontoCliente = (1 - prezzoCliente/listino) × 100  [arrotondato a 5pp per difetto]
 
      → Altrimenti (≤ 78pp):
-         scontoCliente = sconto_fornitore − 20pp  [arrotondato a 5pp verso il basso, min 0]
+         scontoCliente = sconto_fornitore − 20pp  [arrotondato ai 5pp più vicini, min 0]
 
    REGOLA B (senza listino o listino = 0):
      listino_fittizio = acquisto × 2
@@ -42,7 +42,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.12]';
+  const TAG = '[AR-PRICING v1.2.13]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -1199,6 +1199,8 @@
         regola = 'C';
       } else {
         // REGOLA A NORMALE
+        // Arrotondo ai 5pp più vicini (43 → 45, 42 → 40), non per difetto come la Regola C:
+        // scelta di Fede del 20/11/2026 (#71), tiene i prezzi di sempre.
         const diff = scontoForn - S.regADelta;
         scontoCliente = Math.round(diff / step) * step;
         regola = 'A';
