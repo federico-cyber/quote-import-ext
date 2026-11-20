@@ -42,7 +42,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.11]';
+  const TAG = '[AR-PRICING v1.2.12]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
