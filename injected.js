@@ -23,7 +23,7 @@
   function extractQuotePayload(method, url, body) {
     try {
       if ((method || "").toUpperCase() !== "PATCH") return null;
-      if (!url || !url.includes("/api/Quote")) return null;
+      if (!url || !String(url).includes("/api/Quote")) return null;
       if (!body) return null;
       const parsed = typeof body === "string" ? JSON.parse(body) : null;
       if (parsed && parsed.ID && Array.isArray(parsed.items)) return parsed;
@@ -213,10 +213,25 @@
                 `ID=${parsed && parsed.ID} — payload NON pubblicato`);
   }
 
+  // url e metodo di una chiamata fetch(resource, init). `resource` puo' essere una
+  // stringa, un URL o una Request (oggetti con `url` stringa): prima solo la stringa
+  // e la Request davano un url, e un URL passava inosservato. Il metodo di `init`
+  // vince su quello della Request, come nella fetch vera. Il body di una Request
+  // non si legge mai (consumarlo romperebbe la chiamata della pagina).
+  function richiestaFetch(resource, init) {
+    let url;
+    if (typeof resource === "string") url = resource;
+    else if (resource && typeof resource.url === "string") url = resource.url;
+    else if (resource != null) url = String(resource);
+    const metodo = (init && init.method) || (resource && typeof resource.method === "string" && resource.method) || "GET";
+    return { url, method: String(metodo).toUpperCase() };
+  }
+  // ── fine richiestaFetch
+
   // diagnostic helper: mostra ogni chiamata a /api/Quote per capire se la pagina
   // usa fetch, XHR, o altro endpoint quando dichiarano "salva preventivo"
   function logTouch(via, method, url) {
-    if (url && url.includes("/api/Quote")) {
+    if (url && String(url).includes("/api/Quote")) {
       console.log(TAG, `via=${via} ${method} ${url}`);
     }
   }
@@ -231,8 +246,7 @@
     let counted = false;
     let confirmed = false;
     try {
-      const url = typeof resource === "string" ? resource : resource?.url;
-      const method = (init?.method || "GET").toUpperCase();
+      const { url, method } = richiestaFetch(resource, init);
       logTouch("fetch", method, url);
       find = noteOpenedQuote(method, url);
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
@@ -269,7 +283,7 @@
     const origOpen = xhr.open;
     xhr.open = function (method, url) {
       _method = (method || "GET").toUpperCase();
-      _url = url || "";
+      _url = url == null ? "" : String(url);  // anche un oggetto URL
       return origOpen.apply(this, arguments);
     };
     const origSend = xhr.send;

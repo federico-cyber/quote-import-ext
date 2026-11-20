@@ -301,6 +301,40 @@ test('fetch: GET find/<id> pubblica il customerdata del preventivo', async () =>
   assert.ok(messages.some((x) => x.source === 'AR_QUOTE_OPEN'), 'AR_QUOTE_OPEN sparito');
 });
 
+test('fetch: resource come oggetto URL o Request (find/<id>) viene riconosciuto', async () => {
+  for (const [nome, resource] of [['URL', new URL(FIND_URL)], ['Request-like', { url: FIND_URL, method: 'GET' }]]) {
+    const { win, messages } = makeSandbox({
+      fetchImpl: async () => fakeResponse(true, { ID: 365954, customerdata: CLIENTE }),
+    });
+    await win.fetch(resource);
+    await flush();
+    assert.strictEqual(customerMsgs(messages).length, 1, `${nome}: find non riconosciuta`);
+  }
+});
+
+test('fetch: PATCH con resource oggetto URL e metodo in init → payload pubblicato', async () => {
+  const { win, messages } = makeSandbox({ fetchImpl: async () => ({ ok: true, status: 200 }) });
+  await win.fetch(new URL(PATCH_URL), PATCH_INIT());
+  assert.strictEqual(messages.length, 1);
+});
+
+test('fetch: Request-like PATCH senza body in init → niente payload, nessuna eccezione', async () => {
+  const { win, messages } = makeSandbox({ fetchImpl: async () => ({ ok: true, status: 200 }) });
+  await win.fetch({ url: PATCH_URL, method: 'PATCH' });
+  assert.strictEqual(messages.length, 0);
+});
+
+test('xhr: open con un oggetto URL (find/<id>) viene riconosciuto', async () => {
+  const { win, messages, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const x = new win.XMLHttpRequest();
+  x.open('GET', new URL(FIND_URL));
+  x.send();
+  x.responseType = '';
+  x.responseText = JSON.stringify({ customerdata: CLIENTE });
+  xhrs[0]._respond(200);
+  assert.strictEqual(customerMsgs(messages).length, 1);
+});
+
 test('fetch: customerdata un livello sotto (data) viene trovato', async () => {
   const { win, messages } = makeSandbox({
     fetchImpl: async () => fakeResponse(true, { data: { customerData: CLIENTE } }),
