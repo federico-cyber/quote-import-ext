@@ -33,6 +33,7 @@ const PAYLOAD = {
 // ── Sandbox minimale: window con fetch + XMLHttpRequest fittizi ──────────
 // `messages` = i messaggi di dati (payload, cliente, preventivo aperto); i segnali
 // di controllo AR_QUOTE_SAVES (#47) e AR_QUOTE_OPEN_INTENT (#49) stanno in `all`.
+const ORIGIN = 'https://app.qricambi.com';
 const CONTROLLO = new Set(['AR_QUOTE_SAVES', 'AR_QUOTE_OPEN_INTENT']);
 function makeSandbox({ fetchImpl }) {
   const all = [];
@@ -72,13 +73,16 @@ function makeSandbox({ fetchImpl }) {
   }
 
   const winListeners = {};
+  const targets = [];
   const win = {
+    location: { origin: ORIGIN },
     fetch: fetchImpl,
     XMLHttpRequest: FakeXHR,
     addEventListener: (type, fn) => { (winListeners[type] = winListeners[type] || []).push(fn); },
     // helper di test: un postMessage della pagina/del content script verso injected.js
-    _receive: (data, source = win) => { for (const fn of winListeners.message || []) fn({ source, data }); },
-    postMessage: (msg) => {
+    _receive: (data, source = win, origin = ORIGIN) => { for (const fn of winListeners.message || []) fn({ source, origin, data }); },
+    postMessage: (msg, target) => {
+      targets.push(target);
       all.push(msg);
       if (!CONTROLLO.has(msg.source)) messages.push(msg);
     },
@@ -88,7 +92,7 @@ function makeSandbox({ fetchImpl }) {
   // eslint-disable-next-line no-new-func
   new Function('window', 'console', SCRIPT)(win, cons);
 
-  return { win, messages, all, xhrs, ctl };
+  return { win, messages, all, xhrs, ctl, targets };
 }
 
 const PATCH_URL = 'https://app.qricambi.com/api/Quote';
@@ -135,6 +139,21 @@ test('#59 messaggi da altre finestre o di altro tipo → nessuna risposta', () =
     s.win._receive({ source: 'ALTRO', reqId: 'r4' });
     s.win._receive(null);
   });
+  assert.strictEqual(s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER').length, 0);
+});
+
+// ── #71: canale postMessage: targetOrigin = origine della pagina, mai "*" ──
+test('postMessage verso il content script: targetOrigin e l origine della pagina, mai "*"', async () => {
+  const s = makeSandbox({ fetchImpl: async () => ({ ok: true, status: 200 }) });
+  await s.win.fetch(PATCH_URL, PATCH_INIT());
+  conDocumento(radiceGima, () => s.win._receive({ source: 'AR_FORM_CUSTOMER_REQ', reqId: 'r9' }));
+  assert.ok(s.targets.length >= 2, 'attesi almeno payload + risposta form');
+  for (const t of s.targets) assert.strictEqual(t, ORIGIN);
+});
+
+test('#59 richiesta da un altra origine (stessa finestra) → nessuna risposta', () => {
+  const s = makeSandbox({ fetchImpl: async () => ({}) });
+  conDocumento(radiceGima, () => s.win._receive({ source: 'AR_FORM_CUSTOMER_REQ', reqId: 'r5' }, s.win, 'https://evil.example'));
   assert.strictEqual(s.all.filter((m) => m.source === 'AR_FORM_CUSTOMER').length, 0);
 });
 
@@ -280,6 +299,40 @@ test('fetch: GET find/<id> pubblica il customerdata del preventivo', async () =>
   assert.strictEqual(m[0].id, '365954');
   assert.deepStrictEqual(m[0].customerdata, CLIENTE);
   assert.ok(messages.some((x) => x.source === 'AR_QUOTE_OPEN'), 'AR_QUOTE_OPEN sparito');
+});
+
+test('fetch: resource come oggetto URL o Request (find/<id>) viene riconosciuto', async () => {
+  for (const [nome, resource] of [['URL', new URL(FIND_URL)], ['Request-like', { url: FIND_URL, method: 'GET' }]]) {
+    const { win, messages } = makeSandbox({
+      fetchImpl: async () => fakeResponse(true, { ID: 365954, customerdata: CLIENTE }),
+    });
+    await win.fetch(resource);
+    await flush();
+    assert.strictEqual(customerMsgs(messages).length, 1, `${nome}: find non riconosciuta`);
+  }
+});
+
+test('fetch: PATCH con resource oggetto URL e metodo in init → payload pubblicato', async () => {
+  const { win, messages } = makeSandbox({ fetchImpl: async () => ({ ok: true, status: 200 }) });
+  await win.fetch(new URL(PATCH_URL), PATCH_INIT());
+  assert.strictEqual(messages.length, 1);
+});
+
+test('fetch: Request-like PATCH senza body in init → niente payload, nessuna eccezione', async () => {
+  const { win, messages } = makeSandbox({ fetchImpl: async () => ({ ok: true, status: 200 }) });
+  await win.fetch({ url: PATCH_URL, method: 'PATCH' });
+  assert.strictEqual(messages.length, 0);
+});
+
+test('xhr: open con un oggetto URL (find/<id>) viene riconosciuto', async () => {
+  const { win, messages, xhrs } = makeSandbox({ fetchImpl: async () => ({ ok: true }) });
+  const x = new win.XMLHttpRequest();
+  x.open('GET', new URL(FIND_URL));
+  x.send();
+  x.responseType = '';
+  x.responseText = JSON.stringify({ customerdata: CLIENTE });
+  xhrs[0]._respond(200);
+  assert.strictEqual(customerMsgs(messages).length, 1);
 });
 
 test('fetch: customerdata un livello sotto (data) viene trovato', async () => {

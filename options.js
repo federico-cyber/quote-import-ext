@@ -3,7 +3,7 @@
 
 // Chiavi dei soli parametri pricing (usate dal reset, che NON tocca backendUrl/apiKey).
 const PRICING_KEYS = [
-  'regADelta', 'regACapThreshold', 'regACapValue',
+  'regADelta',
   'regCThreshold', 'regCMarkup', 'regBMultiplier', 'regBDiscount',
   'uiRoundStep', 'uiThresholdLow', 'uiThresholdHigh',
 ];
@@ -11,8 +11,6 @@ const PRICING_KEYS = [
 // Regole di validazione: [min, max, descrizione]
 const VALIDATION_RULES = {
   'reg-a-delta':         [0,   50,  'Delta Sconto (0–50pp)'],
-  'reg-a-cap-threshold': [50,  99,  'Soglia Cap Fornitore (50–99%)'],
-  'reg-a-cap-value':     [0,   99,  'Sconto Fisso Cap (0–99%)'],
   'reg-c-threshold':     [50,  99,  'Soglia Attivazione C (50–99%)'],
   'reg-c-markup':        [1,   200, 'Percentuale Ricarico (1–200%)'],
   'reg-b-multiplier':    [1.1, 10,  'Moltiplicatore Listino (1.1–10)'],
@@ -25,8 +23,6 @@ const VALIDATION_RULES = {
 function loadSettings() {
   chrome.storage.local.get(DEFAULTS, (s) => {
     document.getElementById('reg-a-delta').value = s.regADelta;
-    document.getElementById('reg-a-cap-threshold').value = s.regACapThreshold;
-    document.getElementById('reg-a-cap-value').value = s.regACapValue;
     document.getElementById('reg-c-threshold').value = s.regCThreshold;
     document.getElementById('reg-c-markup').value = s.regCMarkup;
     document.getElementById('reg-b-multiplier').value = s.regBMultiplier;
@@ -74,10 +70,27 @@ function validateAll() {
     if (isNaN(v)) { showFieldError(id, `${label}: valore non valido`); valid = false; }
     else if (v < min || v > max) { showFieldError(id, `${label}: deve essere tra ${min} e ${max}`); valid = false; }
   }
-  const cThresh = parseFloat(document.getElementById('reg-c-threshold').value);
-  const capThresh = parseFloat(document.getElementById('reg-a-cap-threshold').value);
-  if (!isNaN(cThresh) && !isNaN(capThresh) && cThresh >= capThresh) {
-    showFieldError('reg-c-threshold', 'Soglia C deve essere < Soglia Cap A (' + capThresh + '%)');
+  // Coerenza fra campi (ognuno ha gia' il suo intervallo, ma la coppia puo' non avere senso).
+  const num = (id) => parseFloat(document.getElementById(id).value);
+  const bMult = num('reg-b-multiplier'), bDisc = num('reg-b-discount');
+  if (!isNaN(bMult) && !isNaN(bDisc) && bMult * (1 - bDisc / 100) <= 1) {
+    showFieldError('reg-b-discount',
+      `Regola B: Moltiplicatore × (1 − Sconto/100) = ${(bMult * (1 - bDisc / 100)).toFixed(2)}: deve restare sopra 1, altrimenti vende sotto l'acquisto`);
+    valid = false;
+  }
+  const lo = num('ui-threshold-low'), hi = num('ui-threshold-high');
+  if (!isNaN(lo) && !isNaN(hi) && lo >= hi) {
+    showFieldError('ui-threshold-high', 'Soglia Utile Alto: deve essere maggiore della Soglia Utile Basso');
+    valid = false;
+  }
+  // Numeri cliente SIRJ (#71): interi, senza arrotondamenti silenziosi.
+  const ovRaw = document.getElementById('overrideCliforNumero').value;
+  if (String(ovRaw).trim() !== '' && cliforNumeroIntero(ovRaw, 0) === null) {
+    showFieldError('overrideCliforNumero', 'Override Codice Cliente: serve un numero intero (0 = nessun override)');
+    valid = false;
+  }
+  if (cliforNumeroIntero(document.getElementById('fallbackCliforNumero').value, 1) === null) {
+    showFieldError('fallbackCliforNumero', 'CLIFOR fallback: serve un numero intero da 1 in su');
     valid = false;
   }
   // Indirizzo del server (#68): vuoto, relativo o fuori dai permessi non si salva.
@@ -103,8 +116,6 @@ function saveSettings() {
   const getNum = (id) => parseFloat(document.getElementById(id).value);
   const settings = {
     regADelta:        getNum('reg-a-delta'),
-    regACapThreshold: getNum('reg-a-cap-threshold'),
-    regACapValue:     getNum('reg-a-cap-value'),
     regCThreshold:    getNum('reg-c-threshold'),
     regCMarkup:       getNum('reg-c-markup'),
     regBMultiplier:   getNum('reg-b-multiplier'),
@@ -114,8 +125,8 @@ function saveSettings() {
     uiThresholdHigh:  getNum('ui-threshold-high'),
     backendUrl:            document.getElementById('backendUrl').value.trim(),
     apiKey:                document.getElementById('apiKey').value.trim(),
-    overrideCliforNumero:  getNum('overrideCliforNumero'),
-    fallbackCliforNumero:  Math.max(0, Math.floor(getNum('fallbackCliforNumero') || 5)),
+    overrideCliforNumero:  overrideClifor(document.getElementById('overrideCliforNumero').value),
+    fallbackCliforNumero:  cliforNumeroIntero(document.getElementById('fallbackCliforNumero').value, 1),
     importAttendeInVolo:   document.getElementById('importAttendeInVolo').checked,
     quoteOpenSoloOk:       document.getElementById('quoteOpenSoloOk').checked,
     regBSottoCosto:        document.getElementById('regBSottoCosto').checked,

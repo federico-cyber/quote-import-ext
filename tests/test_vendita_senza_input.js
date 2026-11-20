@@ -16,15 +16,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
-
-function estrai(nome) {
-  const start = SRC.indexOf(`function ${nome}(`);
-  assert.ok(start >= 0, `${nome} non trovata in pricing.content.js`);
-  const end = SRC.indexOf('\n  }\n', start);
-  assert.ok(end > start, `fine di ${nome} non trovata`);
-  return SRC.slice(start, end + 4);
-}
+const { SRC, estrai, caricaDefaults } = require('./_estrai');
 
 const calcStart = SRC.indexOf('function scontoIntero');
 const calcEnd = SRC.indexOf('// ── fine calcolaRiga');
@@ -33,12 +25,8 @@ const cicloStart = SRC.indexOf('async function eseguiConIndici');
 const cicloEnd = SRC.indexOf('// ── ANNULLA');
 assert.ok(cicloStart > 0 && cicloEnd > cicloStart, 'eseguiConIndici non trovata');
 
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-  uiThresholdLow: 10, uiThresholdHigh: 35, regBSottoCosto: true,
-};
+// I valori veri di defaults.js, non una copia scritta a mano.
+const DEF = caricaDefaults();
 
 // ── mini-DOM ──
 function mkInput(value) { return { value: String(value), isConnected: true }; }
@@ -58,8 +46,8 @@ function mkTr(td) {
 }
 // colonne: 0 acquisto, 1 listino, 2 sconto, 3 vendita, 4 pezzi
 const COL = { acquisto: 0, listino: 1, sconto: 2, vendita: 3, pezzi: 4 };
-function riga({ vendita = 'input' } = {}) {
-  const td = [mkTd('10.00', false), mkTd('30.00', true), mkTd('20', true),
+function riga({ vendita = 'input', listino = 'input', listinoVal = '30.00' } = {}) {
+  const td = [mkTd('10.00', false), mkTd(listinoVal, listino === 'input'), mkTd('20', true),
     vendita === 'input' ? mkTd('24.00', true) : mkTd('24.00', false), mkTd('1', false)];
   return mkTr(td);
 }
@@ -74,9 +62,9 @@ function esegui(righe, col = COL, fallisce = null) {
   vm.runInContext(
     'let lastSnapshot = { entries: [] };\n' +
     'async function setVueInput(input, value) { __scritture.push(input); if (__fallisce && __fallisce(input, value, __scritture)) return false; input.value = String(value); return true; }\n' +
-    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' +
+    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('leggiRiga') + '\n' + estrai('inputDiCella') + '\n' + estrai('skipReasonsVuoti') + '\n' +
     SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
-    '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null, null);' +
+    '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null);' +
     '\nthis.getSnap = () => lastSnapshot;', ctx);
   return ctx.run(col).then((res) => ({ res, scritture, ctx }));
 }
@@ -128,11 +116,33 @@ async function test(name, fn) {
     assert.strictEqual(res.skipReasons.noVenditaInp, 1);
   });
 
-  await test('motivo visibile nel riepilogo: toast con e senza righe ok, e default del ritorno a vuoto', async () => {
-    const n = SRC.split('res.skipReasons.noVenditaInp ? toastLine(').length - 1;
-    assert.strictEqual(n, 2, `toast con noVenditaInp: ${n} su 2`);
-    assert.ok(/skipReasons: \{[^}]*noVenditaInp: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
-      'noVenditaInp assente dal ritorno a vuoto di esegui');
+  // Toast: si costruisce davvero (toastLine + righeSaltate estratte dal sorgente, document
+  // finto) con un esito finto e si asserisce sul testo prodotto, non sulla forma del codice.
+  const ctxToast = vm.createContext({
+    document: { createElement: () => {
+      const el = { className: '', textContent: '' };
+      Object.defineProperty(el, 'outerHTML', { get: () => `<span class="${el.className}">${el.textContent}</span>` });
+      return el;
+    } },
+  });
+  vm.runInContext(estrai('toastLine') + '\n' + estrai('skipReasonsVuoti') + '\n' + estrai('righeSaltate') +
+    '\nthis.righeSaltate = righeSaltate; this.skipReasonsVuoti = skipReasonsVuoti;', ctxToast);
+
+  await test('#56 motivo visibile nel toast: noVenditaInp produce «Campo vendita assente: N»', async () => {
+    const html = ctxToast.righeSaltate({ ...ctxToast.skipReasonsVuoti(), noVenditaInp: 2 });
+    assert.ok(html.includes('Campo vendita assente: 2'), html);
+    assert.ok(!html.includes('Senza acquisto'), 'riga di un altro motivo nel toast');
+  });
+
+  await test('il ritorno a vuoto e il toast conoscono gli stessi motivi: ogni contatore produce una riga', async () => {
+    const vuoti = ctxToast.skipReasonsVuoti();
+    assert.ok(Object.keys(vuoti).length >= 8, 'contatori mancanti');
+    for (const k of Object.keys(vuoti)) {
+      assert.strictEqual(vuoti[k], 0, `${k} non parte da 0`);
+      assert.strictEqual(ctxToast.righeSaltate(vuoti), '', 'toast con tutti i contatori a 0 non vuoto');
+      const html = ctxToast.righeSaltate({ ...vuoti, [k]: 3 });
+      assert.ok(/● [^<]+: 3/.test(html), `motivo ${k} senza riga nel toast`);
+    }
   });
 
   // #67: Vendita o riscrittura dello sconto non confermate -> riga saltata, import bloccato
@@ -161,6 +171,46 @@ async function test(name, fn) {
     assert.strictEqual(r.utile.textContent, '-');
   });
 
+  await test('#71 sconto non scritto, rollback del listino riuscito: la riga entra comunque nello snapshot', async () => {
+    const r = riga({ listinoVal: '9.00' }); // listino sotto l'acquisto: Regola B lo riscrive
+    const { res, ctx } = await esegui([r], COL, (inp) => inp === r.td[2].inp);
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skip, 1);
+    assert.strictEqual(res.skipReasons.rollbackB, 1, JSON.stringify(res.skipReasons));
+    assert.strictEqual(ctx.getSnap().entries.length, 1, 'riga saltata a rollback riuscito fuori dallo snapshot');
+    assert.strictEqual(r.td[1].inp.value, '9.00', 'listino non tornato all\'originale');
+  });
+
+  await test('#71 listino senza casella e sconto non scritto (ramo finale): riga nello snapshot', async () => {
+    const r = riga({ listino: 'testo' });
+    const { res, ctx } = await esegui([r], COL, (inp) => inp === r.td[2].inp);
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skipReasons.setFailed, 1, JSON.stringify(res.skipReasons));
+    assert.strictEqual(ctx.getSnap().entries.length, 1, 'riga saltata nel ramo finale fuori dallo snapshot');
+  });
+
+  await test('#71 righe saltate prima di qualsiasi scrittura (acquisto mancante) restano fuori dallo snapshot', async () => {
+    const r = riga();
+    r.td[0] = mkTd('0', false);
+    const { res, ctx } = await esegui([r], COL);
+    assert.strictEqual(res.skipReasons.noAcquisto, 1);
+    assert.strictEqual(ctx.getSnap().entries.length, 0);
+  });
+
+  await test('#71 leggiRiga: una sola lettura per ciclo e ricalcolo live (pezzi mancante = 1, vendita non mappata = null)', async () => {
+    const ctx = vm.createContext({});
+    vm.runInContext(estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('leggiRiga') +
+      '\nthis.leggiRiga = leggiRiga;', ctx);
+    const r = riga();
+    const v = ctx.leggiRiga(r, COL);
+    assert.deepStrictEqual([v.acquisto, v.listino, v.vendita, v.pezzi], [10, 30, 24, 1]);
+    assert.strictEqual(v.tds.length, 5);
+    r.td[4] = mkTd('0', false);
+    assert.strictEqual(ctx.leggiRiga(r, COL).pezzi, 1, 'pezzi 0 deve valere 1 come nel ciclo');
+    const senzaVendita = ctx.leggiRiga(riga(), { acquisto: 0, listino: 1, sconto: 2, pezzi: 4 });
+    assert.strictEqual(senzaVendita.vendita, null);
+  });
+
   await test('#67 mix: una riga confermata e una con vendita non confermata', async () => {
     const buona = riga(), cattiva = riga();
     const { res } = await esegui([buona, cattiva], COL, (inp) => inp === cattiva.td[3].inp);
@@ -177,11 +227,9 @@ async function test(name, fn) {
     assert.strictEqual(res.skipReasons.venditaNonConfermata || 0, 0);
   });
 
-  await test('#67 motivo visibile nel riepilogo: toast con e senza righe ok, e default del ritorno a vuoto', async () => {
-    const n = SRC.split('res.skipReasons.venditaNonConfermata ? toastLine(').length - 1;
-    assert.strictEqual(n, 2, `toast con venditaNonConfermata: ${n} su 2`);
-    assert.ok(/skipReasons: \{[^}]*venditaNonConfermata: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
-      'venditaNonConfermata assente dal ritorno a vuoto di esegui');
+  await test('#67 motivo visibile nel toast: venditaNonConfermata produce la riga', async () => {
+    const html = ctxToast.righeSaltate({ ...ctxToast.skipReasonsVuoti(), venditaNonConfermata: 1 });
+    assert.ok(html.includes('Vendita o sconto non confermati: 1'), html);
   });
 
   if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }

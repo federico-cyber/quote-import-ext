@@ -13,7 +13,7 @@ della pagina Qricambi.
 ## Architettura
 
 Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
-- **⚡ Applica Pricing** → regole pricing A/B/C sulle tabelle preventivo Vue 3.
+- **⚡ Applica Pricing** → regole pricing A/B/C sulle tabelle preventivo (Vue 2 + Vuetify 2).
 - **→ Importa in SIRJ** → invia il preventivo corrente come PR3 al bridge `:5008`.
 
 ### Content scripts
@@ -36,6 +36,22 @@ lo raccoglie dal lato ISOLATED per effettuare la chiamata al backend.
 
 `fab.js` carica per primo fra i tre script ISOLATED dipendenti da `DEFAULTS` e
 crea `window.__AR_QRICAMBI`; i due content script vi registrano il loro handler.
+
+### Canale postMessage: limite residuo (#71)
+
+Ogni `postMessage` usa come targetOrigin `window.location.origin` (mai `"*"`) e ogni
+listener (`injected.js`, `fab.js`, `import.content.js`, `pricing.content.js`) accetta solo
+`event.source === window && event.origin === window.location.origin`: scarta iframe e
+finestre di altre origini. **Limite che resta:** fra MAIN e ISOLATED un token non si puo
+nascondere alla pagina, perche' il canale e' il `window` condiviso, leggibile e scrivibile da
+ogni script di app.qricambi.com. Per questo non c'e' un canale a token: sarebbe teatro. Il
+backend resta protetto dalla sua API key e dal controllo dell'indirizzo (#68); la mappa
+`clientiPreventivo` tiene solo gli ultimi 20 preventivi.
+
+**Numeri cliente SIRJ (#71):** override e fallback si normalizzano in un solo posto (`cliforNumeroIntero`,
+`overrideClifor`, `fallbackClifor` in `defaults.js`): interi, override >= 0 (0 = nessuno), fallback >= 1
+(sennò il default 5). Il fallback si legge da `cfg` a ogni import; le Opzioni rifiutano con un errore
+visibile i valori non interi, la Regola B con Moltiplicatore×(1−Sconto/100) <= 1 e le soglie utile con Basso >= Alto.
 
 ### Conferma del salvataggio Qricambi (arauto#1990)
 
@@ -107,6 +123,9 @@ node tests/test_import_backend_url_guard.js
 node tests/test_log_senza_apikey.js
 node tests/test_manifest_privacy.js
 node tests/test_sconti_sirj.js
+node tests/test_set_vue_input.js
+node tests/test_clienti_preventivo.js
+node tests/test_popup_regole.js
 ```
 
 ### Indirizzo del server valido o niente invio (#68)
@@ -281,7 +300,12 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   (`skipReasons.setFailed`); se lo sconto non si scrive dopo il listino, il listino torna al
   valore di prima (`rollbackB`). Se anche quella riscrittura fallisce la riga finisce in
   `skipReasons.rollbackFallito` («Listino NON ripristinato, controlla la riga» nel toast), entra
-  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa.
+  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa. Entrano nello
+  snapshot anche le righe saltate a rollback riuscito (`rollbackB`, `setFailed` del ramo finale):
+  un `setVueInput` fallito può aver lasciato Vue con un valore intermedio (#71).
+- **Lettura di una riga.** `leggiRiga(tr, col)` è l'unica lettura (acquisto, listino, vendita,
+  pezzi: `td` della riga, pezzi mancante = 1) per il ciclo di pricing e per il ricalcolo live
+  dell'utile (`onTableInput`, che richiede acquisto > 0).
 - **ANNULLA.** Una riga conta come ripristinata solo se **tutti** i suoi campi ancora in pagina
   sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
   Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA
@@ -352,8 +376,11 @@ confermati» nel toast), mai `ok`: `bothBlockReason` (fab.js) blocca l'import pe
 
 ### setVueInput (in `pricing.content.js`)
 
-Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
+Funzione critica — Vue può sovrascrivere i valori. Approccio a 4 livelli
 (`execCommand` → native setter → `__vueParentComponent` emit → verification loop).
+Qricambi è Vue 2 + Vuetify 2 (verificato il 03/11/2026): scrivono i livelli 1 e 2; il
+livello 3 (`__vueParentComponent`, solo Vue 3) su Vue 2 non trova il componente ed è
+inerte, tenuto come ripiego se Qricambi passasse a Vue 3 (audit #71).
 **Non semplificare mai `setVueInput()`** — la complessità gestisce la reattività Vue.
 
 ### Storico import

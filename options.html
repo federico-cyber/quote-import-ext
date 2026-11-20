@@ -54,7 +54,7 @@
   <div class="container">
     <header>
       <h1>AR <span>AUTO</span> — QRICAMBI</h1>
-      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.11</p>
+      <p style="color: var(--muted); font-size: 14px; margin-top: 8px;">Configurazione estensione unificata v1.2.12</p>
     </header>
 
     <div class="section">
@@ -62,12 +62,6 @@
       <div class="form-group"><label>Delta Sconto (pp)</label>
         <div class="input-row"><input type="number" id="reg-a-delta" value="20">
         <span class="description">Valore sottratto allo sconto fornitore (es. -20pp).</span></div></div>
-      <div class="form-group"><label>Soglia Cap Fornitore (%)</label>
-        <div class="input-row"><input type="number" id="reg-a-cap-threshold" value="80">
-        <span class="description">Se lo sconto fornitore supera questo valore...</span></div></div>
-      <div class="form-group"><label>Sconto Fisso Cap (%)</label>
-        <div class="input-row"><input type="number" id="reg-a-cap-value" value="70">
-        <span class="description">...applica questo sconto fisso al cliente.</span></div></div>
     </div>
 
     <div class="section">
@@ -115,7 +109,7 @@
         <div class="input-row"><input type="number" id="overrideCliforNumero" value="0" min="0">
         <span class="description">Se &gt; 0, usa questo numero clifor SIRJ per <b>tutti</b> gli import (salta il matching automatico). Imposta 0 per usare il matching normale.</span></div></div>
       <div class="form-group"><label for="fallbackCliforNumero">CLIFOR fallback (cliente fittizio)</label>
-        <div class="input-row"><input type="number" id="fallbackCliforNumero" value="5" min="0" step="1">
+        <div class="input-row"><input type="number" id="fallbackCliforNumero" value="5" min="1" step="1">
         <span class="description">Numero clifor SIRJ usato come <b>cliente generico</b> quando il matching automatico non trova il cliente e l'override è 0. Default: 5.</span></div></div>
     </div>
 

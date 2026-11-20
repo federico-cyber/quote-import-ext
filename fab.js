@@ -4,7 +4,7 @@
 // voci di menu. Caricato dopo defaults.js, prima dei due content script.
 (function () {
   'use strict';
-  const TAG = '[AR-QR-FAB v1.2.11]';
+  const TAG = '[AR-QR-FAB v1.2.12]';
   console.log(TAG, 'avviato su', location.href);
 
   // Registro handler — i content script assegnano onPricing / onImport al load.
@@ -201,7 +201,7 @@
       if (onChange) onChange();
     };
     const onMessage = (event) => {
-      if (event.source !== window) return;
+      if (event.source !== window || event.origin !== window.location.origin) return;
       const d = event.data;
       if (!d || d.source !== 'AR_QUOTE_SAVES') return;
       saves.inflight = Math.max(0, Number(d.inflight) || 0);

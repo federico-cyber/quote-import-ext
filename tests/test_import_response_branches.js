@@ -29,13 +29,15 @@ const vm = require('vm');
 const assert = require('assert');
 
 // idsFromHref vive in defaults.js (caricato prima di import.content.js).
-const { idsFromHref, backendUrlProblem } = (() => {
+const { idsFromHref, backendUrlProblem, overrideClifor, fallbackClifor } = (() => {
   const c = vm.createContext({ URL });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8'), c);
-  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c) };
+  return { idsFromHref: vm.runInContext('idsFromHref', c), backendUrlProblem: vm.runInContext('backendUrlProblem', c),
+    overrideClifor: vm.runInContext('overrideClifor', c), fallbackClifor: vm.runInContext('fallbackClifor', c) };
 })();
 
 
+const { caricaDefaults } = require('./_estrai');
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'import.content.js'), 'utf8');
 const POPUP_SRC = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
 
@@ -111,6 +113,7 @@ function setupImport(fetchImpl, sharedWindow) {
     idsFromHref,
     AbortController,
     backendUrlProblem,
+    overrideClifor, fallbackClifor,
     URL,
     chrome: {
       runtime: { openOptionsPage() {} },
@@ -365,6 +368,7 @@ const R200_OK = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno
     const container = fakeEl();
     const ctx = {
       Date,
+      DEFAULTS: caricaDefaults(),
       document: {
         getElementById: (id) => (id === 'history' ? container : fakeEl()),
         createElement: fakeEl,

@@ -19,7 +19,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
+const { SRC, caricaDefaults } = require('./_estrai');
 const DEFAULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8');
 const start = SRC.indexOf('function scontoIntero');
 const end = SRC.indexOf('// ── fine calcolaRiga');
@@ -32,11 +32,8 @@ vm.runInContext(SRC.slice(start, end) +
   '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte };', ctx);
 const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte } = ctx.f;
 
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-};
+// I valori veri di defaults.js, non una copia scritta a mano.
+const DEF = caricaDefaults();
 const REC = { soglia: 55, punti: 5 };
 
 let failed = 0;
@@ -55,7 +52,7 @@ for (const [nome, acq, lis, S, atteso, normale, applicato] of [
   ['A: 55 → 50', 25, 100, DEF, 50, 55, true],
   ['A: 60 → 55', 20, 100, DEF, 55, 60, true],
   ['A: 54 resta 54 (step 1)', 26, 100, { ...DEF, uiRoundStep: 1 }, 54, 54, false],
-  ['A cap: 70 → 65', 15, 100, DEF, 65, 70, true],
+  ['C: 70 → 65', 15, 100, DEF, 65, 70, true],
   ['C: 80 → 75', 10, 100, DEF, 75, 80, true],
   ['A: 40 resta 40', 40, 100, DEF, 40, 40, false],
   ['B: 30 resta 30', 7, 0, DEF, 30, 30, false],
@@ -94,17 +91,35 @@ test('sweep: col recupero lo sconto non supera mai quello normale, vendita al ce
       assert.ok(Number.isInteger(r.scontoCliente), msg);
       assert.ok(r.scontoCliente <= n.scontoCliente, msg);
       assert.ok(venditaAlCentesimo(r), msg);
-      if (n.scontoCliente >= 57) {
-        assert.ok(r.scontoCliente <= n.scontoCliente - 3, msg);
+      // Spec: da soglia in su si tolgono esattamente `punti` punti (qui, passo 5, il
+      // ritocco al centesimo non sposta lo sconto: ogni sconto e' multiplo di 5).
+      if (n.scontoCliente >= REC.soglia) {
+        assert.strictEqual(r.scontoCliente, n.scontoCliente - REC.punti, msg);
+        assert.strictEqual(r.recuperoApplicato, true, msg);
         ridotte++;
+      } else {
+        assert.strictEqual(r.scontoCliente, n.scontoCliente, msg);
+        assert.strictEqual(r.recuperoApplicato, false, msg);
       }
-      if (n.scontoCliente < 53) assert.strictEqual(r.scontoCliente, n.scontoCliente, msg);
       // il ritocco al centesimo non porta a soglia una riga non ridotta
       if (!r.recuperoApplicato) assert.ok(r.scontoCliente < REC.soglia, msg);
     }
   }
   assert.ok(ridotte > 100, `sweep troppo povero: ${ridotte}`);
 });
+
+// Banda di confine con passo 1 (55 e 56 sono >= soglia): tolgono esattamente `punti`,
+// 54 resta com'e'. Senza ritocco al centesimo di mezzo (listino 100: vendita gia' al centesimo).
+for (const [acq, normale, atteso] of [[26, 54, 54], [25, 55, 50], [24, 56, 51], [23, 57, 52]]) {
+  test(`recupero passo 1 sulla soglia: ${normale} → ${atteso}`, () => {
+    const S1 = { ...DEF, uiRoundStep: 1 };
+    const n = calcolaRiga(acq, 100, S1, null);
+    const r = calcolaRiga(acq, 100, S1, REC);
+    assert.strictEqual(n.scontoCliente, normale, 'sconto senza recupero');
+    assert.strictEqual(r.scontoCliente, atteso, 'sconto con recupero');
+    assert.strictEqual(r.recuperoApplicato, normale >= REC.soglia);
+  });
+}
 
 test('sweep a passo 1: il ritocco non porta a soglia né ridà i punti tolti', () => {
   const S1 = { ...DEF, uiRoundStep: 1 };

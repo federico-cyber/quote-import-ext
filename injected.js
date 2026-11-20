@@ -6,8 +6,16 @@
 // Il payload pubblicato e' identico a quello inviato a Qricambi: cambia solo
 // QUANDO viene pubblicato, non COSA (issue arauto#1990).
 (function () {
-  const TAG = "[QUOTE-IMPORT MAIN v1.2.11]";
+  const TAG = "[QUOTE-IMPORT MAIN v1.2.12]";
   console.log(TAG, "loaded — hooking fetch + XHR");
+
+  // Canale MAIN → ISOLATED: targetOrigin = l'origine della pagina (mai "*"), e in
+  // ascolto si accetta solo la stessa finestra E la stessa origine. Il canale resta
+  // comunque leggibile/scrivibile da ogni script della pagina: vedi CLAUDE.md,
+  // «Canale postMessage: limite residuo».
+  function postaAlContentScript(msg) {
+    window.postMessage(msg, window.location.origin);
+  }
 
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
   // NON pubblica nulla: si limita a preparare il candidato. La pubblicazione
@@ -15,7 +23,7 @@
   function extractQuotePayload(method, url, body) {
     try {
       if ((method || "").toUpperCase() !== "PATCH") return null;
-      if (!url || !url.includes("/api/Quote")) return null;
+      if (!url || !String(url).includes("/api/Quote")) return null;
       if (!body) return null;
       const parsed = typeof body === "string" ? JSON.parse(body) : null;
       if (parsed && parsed.ID && Array.isArray(parsed.items)) return parsed;
@@ -49,7 +57,7 @@
         return;
       }
       lastPublishedSeq = seq;
-      window.postMessage({ source: "AR_QUOTE_IMPORT", payload: parsed, seq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_IMPORT", payload: parsed, seq });
       console.log(TAG, "PATCH /api/Quote CONFERMATA dal server ID=", parsed.ID,
                   "items=", parsed.items.length);
     } catch (e) { /* no-op */ }
@@ -77,7 +85,7 @@
       const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
       if (m) {
         const find = { id: m[1], seq: ++openSeq };
-        window.postMessage({ source: "AR_QUOTE_OPEN_INTENT", id: find.id, seq: find.seq }, "*");
+        postaAlContentScript({ source: "AR_QUOTE_OPEN_INTENT", id: find.id, seq: find.seq });
         return find;
       }
     } catch (e) { /* no-op */ }
@@ -86,7 +94,7 @@
 
   function publishOpened(find) {
     try {
-      window.postMessage({ source: "AR_QUOTE_OPEN", id: find.id, seq: find.seq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_OPEN", id: find.id, seq: find.seq });
     } catch (e) { /* no-op */ }
   }
 
@@ -102,7 +110,7 @@
   let confirmedSeq = 0;
   function postSaves() {
     try {
-      window.postMessage({ source: "AR_QUOTE_SAVES", inflight, sentSeq: lastSentSeq, confirmedSeq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_SAVES", inflight, sentSeq: lastSentSeq, confirmedSeq });
     } catch (e) { /* no-op */ }
   }
   function saveStarted() { inflight++; postSaves(); }
@@ -131,7 +139,7 @@
     try {
       const parsed = typeof body === "string" ? JSON.parse(body) : body;
       const cd = customerdataDi(parsed);
-      window.postMessage({ source: "AR_QUOTE_CUSTOMER", id, customerdata: cd }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_CUSTOMER", id, customerdata: cd });
       console.log(TAG, "GET quote/find/" + id + ": customerdata",
                   cd ? "presente" : "ASSENTE (chiavi: " + Object.keys(parsed || {}).join(",") + ")");
     } catch (e) { /* risposta non JSON: il pricing prezza senza fascia */ }
@@ -188,7 +196,8 @@
 
   window.addEventListener("message", function (event) {
     const d = event.data;
-    if (event.source !== window || !d || d.source !== "AR_FORM_CUSTOMER_REQ") return;
+    if (event.source !== window || event.origin !== window.location.origin
+        || !d || d.source !== "AR_FORM_CUSTOMER_REQ") return;
     let esito;
     try {
       const app = document.querySelector("#app");
@@ -196,7 +205,7 @@
     } catch (e) {
       esito = { trovato: false, motivo: "errore nella lettura del form" };
     }
-    window.postMessage(Object.assign({ source: "AR_FORM_CUSTOMER", reqId: d.reqId }, esito), "*");
+    postaAlContentScript(Object.assign({ source: "AR_FORM_CUSTOMER", reqId: d.reqId }, esito));
   });
 
   function logRejected(via, status, parsed) {
@@ -204,10 +213,25 @@
                 `ID=${parsed && parsed.ID} — payload NON pubblicato`);
   }
 
+  // url e metodo di una chiamata fetch(resource, init). `resource` puo' essere una
+  // stringa, un URL o una Request (oggetti con `url` stringa): prima solo la stringa
+  // e la Request davano un url, e un URL passava inosservato. Il metodo di `init`
+  // vince su quello della Request, come nella fetch vera. Il body di una Request
+  // non si legge mai (consumarlo romperebbe la chiamata della pagina).
+  function richiestaFetch(resource, init) {
+    let url;
+    if (typeof resource === "string") url = resource;
+    else if (resource && typeof resource.url === "string") url = resource.url;
+    else if (resource != null) url = String(resource);
+    const metodo = (init && init.method) || (resource && typeof resource.method === "string" && resource.method) || "GET";
+    return { url, method: String(metodo).toUpperCase() };
+  }
+  // ── fine richiestaFetch
+
   // diagnostic helper: mostra ogni chiamata a /api/Quote per capire se la pagina
   // usa fetch, XHR, o altro endpoint quando dichiarano "salva preventivo"
   function logTouch(via, method, url) {
-    if (url && url.includes("/api/Quote")) {
+    if (url && String(url).includes("/api/Quote")) {
       console.log(TAG, `via=${via} ${method} ${url}`);
     }
   }
@@ -222,8 +246,7 @@
     let counted = false;
     let confirmed = false;
     try {
-      const url = typeof resource === "string" ? resource : resource?.url;
-      const method = (init?.method || "GET").toUpperCase();
+      const { url, method } = richiestaFetch(resource, init);
       logTouch("fetch", method, url);
       find = noteOpenedQuote(method, url);
       // Il body va letto ora (dopo, init potrebbe non essere piu' disponibile),
@@ -260,7 +283,7 @@
     const origOpen = xhr.open;
     xhr.open = function (method, url) {
       _method = (method || "GET").toUpperCase();
-      _url = url || "";
+      _url = url == null ? "" : String(url);  // anche un oggetto URL
       return origOpen.apply(this, arguments);
     };
     const origSend = xhr.send;

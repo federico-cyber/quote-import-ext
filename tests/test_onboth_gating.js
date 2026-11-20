@@ -84,6 +84,7 @@ function makeSandbox({ onPricing, onImport, storage = {} }) {
   };
   class MutationObserver { observe() {} }
   const win = {
+    location: { origin: 'https://app.qricambi.com' },
     __AR_QRICAMBI: { onPricing, onImport },
     addEventListener: (t, fn) => { if (t === 'message') msgListeners.add(fn); },
     removeEventListener: (t, fn) => { if (t === 'message') msgListeners.delete(fn); },
@@ -103,7 +104,7 @@ function makeSandbox({ onPricing, onImport, storage = {} }) {
   // Simula un postMessage di injected.js (MAIN): AR_QUOTE_SAVES con valori assoluti.
   const saves = (inflight, sentSeq, confirmedSeq) => {
     const data = { source: 'AR_QUOTE_SAVES', inflight, sentSeq, confirmedSeq };
-    for (const fn of [...msgListeners]) fn({ source: win, data });
+    for (const fn of [...msgListeners]) fn({ source: win, origin: 'https://app.qricambi.com', data });
   };
   return { win, clock, alerts, writePatch, saves,
            listenerCount: () => listeners.size, msgListenerCount: () => msgListeners.size };

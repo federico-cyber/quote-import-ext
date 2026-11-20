@@ -12,7 +12,6 @@
 
      → Altrimenti (≤ 78pp):
          scontoCliente = sconto_fornitore − 20pp  [arrotondato a 5pp verso il basso, min 0]
-         Se sconto_fornitore > 80pp → scontoCliente = 70 (cap precedente mantenuto)
 
    REGOLA B (senza listino o listino = 0):
      listino_fittizio = acquisto × 2
@@ -43,7 +42,7 @@
 (function () {
   'use strict';
 
-  const TAG = '[AR-PRICING v1.2.11]';
+  const TAG = '[AR-PRICING v1.2.12]';
   console.log(TAG, 'Content script avviato su', location.href);
 
   // ── STILI ─────────────────────────────────────────────────
@@ -284,6 +283,29 @@
     span.textContent = `● ${label}: ${parseInt(count, 10)}`;
     return span.outerHTML + '<br>';
   }
+  // ── fine toastLine
+
+  // Contatori dei motivi per cui una riga non viene prezzata: unica copia della
+  // forma, usata dal ciclo (eseguiConIndici) e dal ritorno a vuoto di esegui.
+  function skipReasonsVuoti() {
+    return { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+  }
+  // ── fine skipReasonsVuoti
+
+  // Righe del toast per le righe saltate, una per motivo presente: unica copia,
+  // usata dal toast «0 righe aggiornate» e da quello di successo.
+  function righeSaltate(sr) {
+    sr = sr || {};
+    return (sr.noAcquisto  ? toastLine('r', 'Senza acquisto', sr.noAcquisto) : '') +
+      (sr.noScontoInp ? toastLine('r', 'Campo sconto assente', sr.noScontoInp) : '') +
+      (sr.noVenditaInp ? toastLine('r', 'Campo vendita assente', sr.noVenditaInp) : '') +
+      (sr.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', sr.venditaNonConfermata) : '') +
+      (sr.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', sr.scontoNonLetto) : '') +
+      (sr.rollbackB   ? toastLine('r', 'Rollback listino', sr.rollbackB) : '') +
+      (sr.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', sr.rollbackFallito) : '') +
+      (sr.setFailed   ? toastLine('r', 'Scrittura fallita', sr.setFailed) : '');
+  }
+  // ── fine righeSaltate
 
   // Legge un numero da testo/valore di cella. Formato italiano (quote-import-ext#32):
   //   "1.234,56" → 1234.56 (punto = migliaia, virgola = decimale)
@@ -323,10 +345,15 @@
     if (isNaN(n)) return null;
     return neg ? -n : n;
   }
+  // ── fine parseNum
 
-  // ── VUE 3 COMPATIBLE INPUT SETTER (v6.1) ──────────────────
+  // ── INPUT SETTER PER VUE (v6.1) ───────────────────────────
   //
-  // Vue 3 + Vuetify 3 usa proxy reattivi: settare input.value
+  // Qricambi gira su Vue 2 + Vuetify 2 (verificato dal vivo il 03/11/2026, vedi
+  // injected.js): scrivono i livelli 1 e 2. Il livello 3 è per Vue 3 e su Vue 2 non
+  // trova mai il componente: resta come ripiego innocuo se Qricambi passasse a Vue 3.
+  //
+  // Vue usa un modello reattivo: settare input.value
   // e sparare un Event('input') funziona spesso ma Vue può
   // ri-renderizzare e sovrascrivere il valore se il suo model
   // interno non è stato aggiornato.
@@ -336,8 +363,8 @@
   //      l'input come se l'utente avesse scritto: innesca
   //      beforeinput/input/compositionend che Vue 3 ascolta
   //   2. nativeSetter + Event dispatch — fallback robusto
-  //   3. __vueParentComponent emit (Vue 3) — aggiorna il modello
-  //      reattivo via update:modelValue (Vue 3 v-model contract)
+  //   3. __vueParentComponent emit (solo Vue 3, inerte su Vue 2) — aggiorna
+  //      il modello reattivo via update:modelValue (contratto v-model di Vue 3)
   //   4. NEW (v6.1): Verification loop — verifica che il valore persista
   //      dopo Vue re-render. Se cambia, ritenta (max 3 volte).
   //      Fix per race condition dove Vue poteva sovrascrivere il valore.
@@ -394,7 +421,7 @@
       } catch (e3) { }
     }
 
-    // ── Livello 3: Vue 3 __vueParentComponent emit ───────────────
+    // ── Livello 3: Vue 3 __vueParentComponent emit (inerte su Vue 2) ──
     try {
       let el = input;
       let depth = 0;
@@ -539,6 +566,7 @@
 
     return raw;
   }
+  // ── fine mappaColonne
 
   // ── LEGGI VALORE DA CELLA ─────────────────────────────────
   function leggiCella(td) {
@@ -556,11 +584,30 @@
     if (inp) return parseNum(inp.value);
     return fromText;
   }
+  // ── fine leggiCella
+
+  // Valori di una riga di preventivo, letti allo stesso modo dal ciclo di pricing
+  // (eseguiConIndici) e dal ricalcolo live dell'utile (onTableInput): prima i due
+  // leggevano le celle in modo diverso (children vs td, pezzi 0 vs 1) e sullo stesso
+  // preventivo potevano dare un utile diverso. Celle mancanti → null; pezzi mancanti o
+  // zero → 1 (una riga e' almeno un pezzo).
+  function leggiRiga(tr, col) {
+    const tds = tr.querySelectorAll('td');
+    return {
+      tds,
+      acquisto: leggiCella(tds[col.acquisto]),
+      listino: leggiCella(tds[col.listino]),
+      vendita: col.vendita != null ? leggiCella(tds[col.vendita]) : null,
+      pezzi: leggiCella(tds[col.pezzi]) || 1,
+    };
+  }
+  // ── fine leggiRiga
 
   function inputDiCella(td) {
     if (!td) return null;
     return td.querySelector('input');
   }
+  // ── fine inputDiCella
 
   // arauto#5739: codice e costruttore della riga, come li manda l'import. Il
   // codice sta nel chip della colonna Codice (la colonna «Da ricerca» e' il
@@ -571,12 +618,14 @@
     const chip = td.querySelector('.chip__content');
     return String((chip || td).textContent || '').trim();
   }
+  // ── fine testoCodice
 
   function testoCostruttore(td) {
     if (!td) return '';
     const inp = td.querySelector('input');
     return String(inp ? inp.value : td.textContent || '').trim();
   }
+  // ── fine testoCostruttore
 
   // ── SETTINGS & DEFAULTS ──────────────────────────────────
   // DEFAULTS is loaded from defaults.js (shared with options.js)
@@ -601,7 +650,7 @@
         // Fallback: ripristina al default solo le chiavi numeriche pricing (isNaN su stringhe
         // come backendUrl/apiKey darebbe true e le resetterebbe erroneamente).
         const NUMERIC_PRICING_KEYS = new Set([
-          'regADelta', 'regACapThreshold', 'regACapValue',
+          'regADelta',
           'regCThreshold', 'regCMarkup', 'regBMultiplier', 'regBDiscount',
           'uiRoundStep', 'uiThresholdLow', 'uiThresholdHigh',
           'fabZIndex', 'injectionMaxAttempts', 'injectionInitialDelayMs', 'injectionMaxDelayMs',
@@ -628,18 +677,34 @@
   // (GET quote/find/<id>) e di ogni PATCH confermata: id → customerdata.
   const clientiPreventivo = new Map();
   let ultimoPreventivo = null;
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
+  // La mappa tiene solo gli ultimi `max` preventivi visti (l'ordine e' quello
+  // dell'ultimo uso: un id rivisto torna in coda): senza limite cresceva per
+  // tutta la vita della SPA, e puo' essere popolata anche da script della pagina.
+  function ricordaCliente(id, customerdata, max = 20) {
+    clientiPreventivo.delete(id);
+    clientiPreventivo.set(id, customerdata);
+    while (clientiPreventivo.size > max) clientiPreventivo.delete(clientiPreventivo.keys().next().value);
+  }
+  // ── fine ricordaCliente
+
+  // Solo messaggi della pagina stessa: stessa finestra E stessa origine. Il canale
+  // MAIN → ISOLATED resta leggibile e scrivibile da ogni script della pagina
+  // (vedi CLAUDE.md, «Canale postMessage: limite residuo»): questo filtro scarta
+  // iframe e finestre di altre origini, non gli script di Qricambi.
+  function onMessaggioPreventivo(event) {
+    if (event.source !== window || event.origin !== window.location.origin) return;
     const d = event.data;
     if (!d) return;
     if (d.source === 'AR_QUOTE_CUSTOMER' && d.id) {
       ultimoPreventivo = { id: String(d.id), href: location.href };
-      if (d.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.customerdata);
+      if (d.customerdata) ricordaCliente(ultimoPreventivo.id, d.customerdata);
     } else if (d.source === 'AR_QUOTE_IMPORT' && d.payload && d.payload.ID) {
       ultimoPreventivo = { id: String(d.payload.ID), href: location.href };
-      if (d.payload.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.payload.customerdata);
+      if (d.payload.customerdata) ricordaCliente(ultimoPreventivo.id, d.payload.customerdata);
     }
-  });
+  }
+  // ── fine onMessaggioPreventivo
+  window.addEventListener('message', onMessaggioPreventivo);
 
   // ── LETTURA FASCIA (estratta da tests/test_leggi_fascia.js) ──
   // #59: cliente scelto nel form, anche non salvato. Lo legge injected.js (MAIN,
@@ -652,11 +717,12 @@
       const fine = (v) => { window.removeEventListener('message', onMsg); clearTimeout(t); resolve(v); };
       const onMsg = (event) => {
         const d = event.data;
-        if (event.source === window && d && d.source === 'AR_FORM_CUSTOMER' && d.reqId === reqId) fine(d);
+        if (event.source === window && event.origin === window.location.origin
+            && d && d.source === 'AR_FORM_CUSTOMER' && d.reqId === reqId) fine(d);
       };
       const t = setTimeout(() => fine(null), FORM_TIMEOUT_MS);
       window.addEventListener('message', onMsg);
-      window.postMessage({ source: 'AR_FORM_CUSTOMER_REQ', reqId }, '*');
+      window.postMessage({ source: 'AR_FORM_CUSTOMER_REQ', reqId }, window.location.origin);
     });
   }
 
@@ -664,10 +730,11 @@
   function versioneEstensione() {
     try { return chrome.runtime.getManifest().version; } catch (e) { return null; }
   }
+  // ── fine versioneEstensione
   async function leggiFascia() {
     const { url, errore } = opzioniFascia(S.backendUrl, S.apiKey);
     if (errore) return errore;
-    const override = parseInt(S.overrideCliforNumero, 10);
+    const override = overrideClifor(S.overrideCliforNumero);
     let { id, customerdata } = scegliPreventivo(location.href, ultimoPreventivo, clientiPreventivo);
     let scelta = null;
     if (!(override > 0)) {
@@ -820,14 +887,7 @@
         showToast(
           `<b>0 righe aggiornate</b><br>` +
           toastFascia(fascia, 0) +
-          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
-          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
-          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
-          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
-          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          righeSaltate(res.skipReasons) +
           `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
           'error'
         );
@@ -851,14 +911,7 @@
           (nTipo('senzaRegola') ? toastLine('o', punti ? `Non in SIRJ o senza regola, sconto −${punti} (gialle)` : 'Non in SIRJ o senza regola, regola di sempre (gialle)', nTipo('senzaRegola')) : '') +
           (nTipo('sottoCosto') ? toastLine('o', 'SIRJ sotto l\'acquisto, regola di sempre (gialle)', nTipo('sottoCosto')) : '') +
           (nTipo('senzaListino') ? toastLine('o', 'Senza listino, regola di sempre (gialle)', nTipo('senzaListino')) : '') +
-          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
-          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
-          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
-          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
-          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          righeSaltate(res.skipReasons) +
           `<span class="m">Verifica e salva il preventivo.</span>`,
           'success'
         );
@@ -947,12 +1000,11 @@
       const col = mappaColonne(table);
       if (!col) return;
 
-      const acquisto = leggiCella(tr.children[col.acquisto]);
-      const vendita = leggiCella(tr.children[col.vendita]);
-      const pezzi = leggiCella(tr.children[col.pezzi]) || 0;
+      const { acquisto, vendita, pezzi } = leggiRiga(tr, col);
       const utileCell = tr.querySelector('.ar-utile-cell');
 
-      if (utileCell && acquisto !== null && vendita !== null) {
+      // acquisto > 0: il ricarico divide per l'acquisto (come nel ciclo di pricing)
+      if (utileCell && acquisto > 0 && vendita !== null) {
         const utileTotale = (vendita - acquisto) * pezzi;
         utileCell.textContent = utileTotale.toFixed(2);
 
@@ -961,6 +1013,11 @@
         if (ricarico < S.uiThresholdLow) tr.classList.add('ar-row-low');
         else if (ricarico > S.uiThresholdHigh) tr.classList.add('ar-row-high');
 
+        updateSummaryFromTable();
+      } else if (utileCell) {
+        // acquisto svuotato o a zero: niente utile calcolabile, si toglie quello vecchio
+        utileCell.textContent = '-';
+        tr.classList.remove('ar-row-low', 'ar-row-high');
         updateSummaryFromTable();
       }
     }
@@ -974,7 +1031,7 @@
     const table = trovaTabellaPreventivo();
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
-    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 });
+    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: skipReasonsVuoti(), dettagli: [], cambiate: 0 });
     const col = mappaColonne(table);
     if (!col) return vuoto();
 
@@ -1014,7 +1071,7 @@
 
     // Il vecchio FAB standalone (#ar-pricing-btn) non esiste più dalla unificazione;
     // il counter per-riga è stato rimosso (il FAB unico #ar-qr-fab-btn chiude il menu al click).
-    const res = await eseguiConIndici(table, col, null, recupero, sconti);
+    const res = await eseguiConIndici(table, col, recupero, sconti);
     if (sconti) res.sconti = { stato: 'attivo', punti: sconti.punti };
     return res;
   }
@@ -1104,10 +1161,11 @@
       }
     });
   }
+  // ── fine injectUtileColumn
 
   // ── CALCOLO PREZZO RIGA (pura, testata da tests/test_calcola_riga.js) ──
   // Lo sconto cliente è sempre un intero di 1-2 cifre (0-99), anche con
-  // uiRoundStep / regACapValue / regBDiscount configurati non interi (#21).
+  // uiRoundStep / regBDiscount configurati non interi (#21).
   function scontoIntero(x) {
     return Math.min(99, Math.max(0, Math.round(x)));
   }
@@ -1139,10 +1197,6 @@
         // Il floor esterno tiene la direzione anche con uno step non intero.
         scontoCliente = Math.floor(Math.floor(scontoRaw / step) * step);
         regola = 'C';
-      } else if (scontoForn > S.regACapThreshold) {
-        // REGOLA A CAP
-        scontoCliente = S.regACapValue;
-        regola = 'A';
       } else {
         // REGOLA A NORMALE
         const diff = scontoForn - S.regADelta;
@@ -1408,28 +1462,23 @@
   // `sconti` (#5739) = null, o { punti, perRiga: Map tr → { code, riga } }: una
   // riga senza codice vale come non in SIRJ; una riga con un codice diverso da
   // quello mandato al bridge, o assente dalla mappa, e' saltata (scontoNonLetto).
-  async function eseguiConIndici(table, col, onProgress, recupero, sconti) {
+  async function eseguiConIndici(table, col, recupero, sconti) {
     const minCols = colonneMinime(col);
 
     const allTr = Array.from(table.querySelectorAll('tbody tr'));
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+    const skipReasons = skipReasonsVuoti();
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
     for (let ri = 0; ri < allTr.length; ri++) {
-      if (onProgress) onProgress(ri + 1, allTr.length);
       const tr = allTr[ri];
       tr.classList.remove('ar-row-nosirj'); // #5739: niente colore rimasto dal giro prima
-      const tds = tr.querySelectorAll('td');
+      const { tds, acquisto, listino, pezzi } = leggiRiga(tr, col);
 
       if (tds.length < minCols) continue;
-
-      const acquisto = leggiCella(tds[col.acquisto]);
-      const listino = leggiCella(tds[col.listino]);
-      const pezzi = leggiCella(tds[col.pezzi]) || 1;
 
       if (!acquisto || acquisto <= 0) {
         skip++; skipReasons.noAcquisto++;
@@ -1491,6 +1540,10 @@
         if (await setVueInput(listinoInp, listinoOrigValue)) {
           skip++;
           if (listinoScritto) skipReasons.rollbackB++; else skipReasons.setFailed++;
+          // Anche a rollback riuscito la riga entra nello snapshot: un setVueInput
+          // fallito puo' aver lasciato Vue con un valore intermedio, e ANNULLA lo
+          // riporta a quello originale (#71).
+          lastSnapshot.entries.push({ tr, fields: snapFields });
         } else {
           // #34: listino rimasto a un valore diverso dall'originale. La riga
           // entra nello snapshot: ANNULLA la puo' riprovare.
@@ -1562,6 +1615,7 @@
         lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
         skip++; skipReasons.setFailed++;
+        lastSnapshot.entries.push({ tr, fields: snapFields }); // #71: come sopra, ANNULLA la puo' ripristinare
       }
     }
 
