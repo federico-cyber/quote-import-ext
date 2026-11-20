@@ -24,7 +24,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const { SRC, estrai } = require('./_estrai');
+const { SRC, estrai, caricaDefaults } = require('./_estrai');
 const DEFAULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8');
 const calcStart = SRC.indexOf('function scontoIntero');
 const calcEnd = SRC.indexOf('// ── fine calcolaRiga');
@@ -39,12 +39,8 @@ vm.runInContext(SRC.slice(calcStart, calcEnd) +
   '\nthis.f = { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia, tolleranzaSconto };', ctx);
 const { calcolaRiga, prezzoRiga, esitoSconti, urlSconti, esitoFascia, tolleranzaSconto } = ctx.f;
 
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-  uiThresholdLow: 10, uiThresholdHigh: 35, regBSottoCosto: true,
-};
+// I valori veri di defaults.js, non una copia scritta a mano.
+const DEF = caricaDefaults();
 const plain = (o) => JSON.parse(JSON.stringify(o));
 const sirj = (riga, punti = 20) => ({ punti, riga });
 
@@ -248,7 +244,7 @@ async function test(name, fn) {
       '  return true; }\n' +
       estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' + estrai('testoCodice') + '\n' +
       SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
-      '\nthis.run = (s) => eseguiConIndici({ querySelectorAll: () => __righe }, ' + JSON.stringify(COL) + ', null, null, s);', c);
+      '\nthis.run = (s) => eseguiConIndici({ querySelectorAll: () => __righe }, ' + JSON.stringify(COL) + ', null, s);', c);
     return c.run(sconti).then((res) => ({ res, scritture }));
   }
 

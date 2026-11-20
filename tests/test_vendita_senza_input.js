@@ -16,7 +16,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const { SRC, estrai } = require('./_estrai');
+const { SRC, estrai, caricaDefaults } = require('./_estrai');
 
 const calcStart = SRC.indexOf('function scontoIntero');
 const calcEnd = SRC.indexOf('// ── fine calcolaRiga');
@@ -25,12 +25,8 @@ const cicloStart = SRC.indexOf('async function eseguiConIndici');
 const cicloEnd = SRC.indexOf('// ── ANNULLA');
 assert.ok(cicloStart > 0 && cicloEnd > cicloStart, 'eseguiConIndici non trovata');
 
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-  uiThresholdLow: 10, uiThresholdHigh: 35, regBSottoCosto: true,
-};
+// I valori veri di defaults.js, non una copia scritta a mano.
+const DEF = caricaDefaults();
 
 // ── mini-DOM ──
 function mkInput(value) { return { value: String(value), isConnected: true }; }
@@ -68,7 +64,7 @@ function esegui(righe, col = COL, fallisce = null) {
     'async function setVueInput(input, value) { __scritture.push(input); if (__fallisce && __fallisce(input, value, __scritture)) return false; input.value = String(value); return true; }\n' +
     estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' +
     SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
-    '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null, null);' +
+    '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null);' +
     '\nthis.getSnap = () => lastSnapshot;', ctx);
   return ctx.run(col).then((res) => ({ res, scritture, ctx }));
 }

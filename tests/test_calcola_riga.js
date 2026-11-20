@@ -16,8 +16,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(
-  path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
+const { SRC, caricaDefaults } = require('./_estrai');
 const start = SRC.indexOf('function scontoIntero');
 const end = SRC.indexOf('// ── fine calcolaRiga');
 assert.ok(start > 0 && end > start, 'blocco calcolaRiga non trovato in pricing.content.js');
@@ -26,12 +25,8 @@ const ctx = {};
 vm.runInNewContext(SRC.slice(start, end) + '\nthis.calcolaRiga = calcolaRiga; this.rigaCambiata = rigaCambiata;', ctx);
 const { calcolaRiga, rigaCambiata } = ctx;
 
-// Stessi valori di defaults.js
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-};
+// I valori veri di defaults.js (non una copia scritta a mano che puo' divergere).
+const DEF = caricaDefaults();
 
 let failed = 0;
 function test(name, fn) {
@@ -83,6 +78,16 @@ test('regola C: 90% fornitore → ricarico 77 sul netto, floor a 5', () => {
   assert.strictEqual(r.scontoCliente, 80); // raw 82.3 → floor 80
 });
 
+// Il vecchio ramo «A CAP» (sconto fornitore > 80 → sconto fisso) era irraggiungibile:
+// la Regola C prende ogni sconto fornitore > 78. Ramo e campi sono stati rimossi.
+test('sconto fornitore > soglia C: sempre Regola C, nessun campo A CAP in defaults.js', () => {
+  assert.ok(!('regACapThreshold' in DEF) && !('regACapValue' in DEF), 'campi A CAP ancora in defaults.js');
+  for (const forn of [79, 80, 81, 85, 90, 99]) {
+    const r = calcolaRiga(100 - forn, 100, DEF);
+    assert.strictEqual(r.regola, 'C', `fornitore ${forn}%`);
+  }
+});
+
 test('regola B: senza listino → listino fittizio, sconto 30', () => {
   const r = calcolaRiga(12.345, 0, DEF);
   assert.strictEqual(r.regola, 'B');
@@ -94,8 +99,8 @@ test('regola A: sconto negativo → 0', () => {
   assert.strictEqual(r.scontoCliente, 0);
 });
 
-test('config non intera (step 2.5, cap 70.5, B 33.3) → sconto sempre intero', () => {
-  const S = { ...DEF, uiRoundStep: 2.5, regACapValue: 70.5, regBDiscount: 33.3 };
+test('config non intera (step 2.5, B 33.3, ricarico C 77.7) → sconto sempre intero', () => {
+  const S = { ...DEF, uiRoundStep: 2.5, regBDiscount: 33.3, regCMarkup: 77.7 };
   for (const [acq, lis] of [[43, 100], [19, 100], [10, 100], [7, 0]]) {
     assertScontoIntero(calcolaRiga(acq, lis, S), `acq=${acq} lis=${lis}`);
   }
@@ -176,8 +181,8 @@ test('#24 sweep con i default → vendita sempre al centesimo, ritocco < 0,20', 
   }
 });
 
-test('#24 config non intera (step 1, cap 71, B 33) → vendita al centesimo, ritocco < 0,20', () => {
-  const S = { ...DEF, uiRoundStep: 1, regACapValue: 71, regBDiscount: 33 };
+test('#24 config non intera (step 1, B 33) → vendita al centesimo, ritocco < 0,20', () => {
+  const S = { ...DEF, uiRoundStep: 1, regBDiscount: 33 };
   for (let lis = 1; lis <= 300; lis += 3.37) {
     const lisC = Math.round(lis * 100) / 100;
     for (let pct = 0.05; pct <= 1.0; pct += 0.031) {

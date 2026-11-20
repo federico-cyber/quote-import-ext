@@ -13,6 +13,8 @@ const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
 
+const vm = require('vm');
+
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
 
 // Da `function <nome>(` (o `async function <nome>(`) al marcatore `// ── fine <nome>`.
@@ -34,4 +36,14 @@ function tra(da, a, src = SRC) {
   return src.slice(i, j);
 }
 
-module.exports = { SRC, estrai, tra };
+// DEFAULTS di defaults.js (e' un `const` dello script: non finisce fra le proprieta'
+// del contesto vm, lo si espone esplicitamente). Copia semplice: i test la possono
+// ritoccare. Cosi' i test non ridichiarano a mano valori che poi divergono.
+function caricaDefaults() {
+  const ctx = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8') +
+    '\nthis.DEFAULTS = DEFAULTS;', ctx);
+  return JSON.parse(JSON.stringify(ctx.DEFAULTS));
+}
+
+module.exports = { SRC, estrai, tra, caricaDefaults };

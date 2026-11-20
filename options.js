@@ -3,7 +3,7 @@
 
 // Chiavi dei soli parametri pricing (usate dal reset, che NON tocca backendUrl/apiKey).
 const PRICING_KEYS = [
-  'regADelta', 'regACapThreshold', 'regACapValue',
+  'regADelta',
   'regCThreshold', 'regCMarkup', 'regBMultiplier', 'regBDiscount',
   'uiRoundStep', 'uiThresholdLow', 'uiThresholdHigh',
 ];
@@ -11,8 +11,6 @@ const PRICING_KEYS = [
 // Regole di validazione: [min, max, descrizione]
 const VALIDATION_RULES = {
   'reg-a-delta':         [0,   50,  'Delta Sconto (0–50pp)'],
-  'reg-a-cap-threshold': [50,  99,  'Soglia Cap Fornitore (50–99%)'],
-  'reg-a-cap-value':     [0,   99,  'Sconto Fisso Cap (0–99%)'],
   'reg-c-threshold':     [50,  99,  'Soglia Attivazione C (50–99%)'],
   'reg-c-markup':        [1,   200, 'Percentuale Ricarico (1–200%)'],
   'reg-b-multiplier':    [1.1, 10,  'Moltiplicatore Listino (1.1–10)'],
@@ -25,8 +23,6 @@ const VALIDATION_RULES = {
 function loadSettings() {
   chrome.storage.local.get(DEFAULTS, (s) => {
     document.getElementById('reg-a-delta').value = s.regADelta;
-    document.getElementById('reg-a-cap-threshold').value = s.regACapThreshold;
-    document.getElementById('reg-a-cap-value').value = s.regACapValue;
     document.getElementById('reg-c-threshold').value = s.regCThreshold;
     document.getElementById('reg-c-markup').value = s.regCMarkup;
     document.getElementById('reg-b-multiplier').value = s.regBMultiplier;
@@ -74,12 +70,6 @@ function validateAll() {
     if (isNaN(v)) { showFieldError(id, `${label}: valore non valido`); valid = false; }
     else if (v < min || v > max) { showFieldError(id, `${label}: deve essere tra ${min} e ${max}`); valid = false; }
   }
-  const cThresh = parseFloat(document.getElementById('reg-c-threshold').value);
-  const capThresh = parseFloat(document.getElementById('reg-a-cap-threshold').value);
-  if (!isNaN(cThresh) && !isNaN(capThresh) && cThresh >= capThresh) {
-    showFieldError('reg-c-threshold', 'Soglia C deve essere < Soglia Cap A (' + capThresh + '%)');
-    valid = false;
-  }
   // Indirizzo del server (#68): vuoto, relativo o fuori dai permessi non si salva.
   const urlProblema = backendUrlProblem(document.getElementById('backendUrl').value);
   if (urlProblema) { showFieldError('backendUrl', 'Indirizzo del server: ' + urlProblema); valid = false; }
@@ -103,8 +93,6 @@ function saveSettings() {
   const getNum = (id) => parseFloat(document.getElementById(id).value);
   const settings = {
     regADelta:        getNum('reg-a-delta'),
-    regACapThreshold: getNum('reg-a-cap-threshold'),
-    regACapValue:     getNum('reg-a-cap-value'),
     regCThreshold:    getNum('reg-c-threshold'),
     regCMarkup:       getNum('reg-c-markup'),
     regBMultiplier:   getNum('reg-b-multiplier'),

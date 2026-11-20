@@ -5,8 +5,6 @@
 const DEFAULTS = {
   // ── Regole pricing (ex pricing-ext-v5 v6.1) ─────────────────────────
   regADelta: 20,
-  regACapThreshold: 80,
-  regACapValue: 70,
   regCThreshold: 78,
   regCMarkup: 77,
   regBMultiplier: 2.0,

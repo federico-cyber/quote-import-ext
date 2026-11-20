@@ -12,7 +12,6 @@
 
      → Altrimenti (≤ 78pp):
          scontoCliente = sconto_fornitore − 20pp  [arrotondato a 5pp verso il basso, min 0]
-         Se sconto_fornitore > 80pp → scontoCliente = 70 (cap precedente mantenuto)
 
    REGOLA B (senza listino o listino = 0):
      listino_fittizio = acquisto × 2
@@ -607,7 +606,7 @@
         // Fallback: ripristina al default solo le chiavi numeriche pricing (isNaN su stringhe
         // come backendUrl/apiKey darebbe true e le resetterebbe erroneamente).
         const NUMERIC_PRICING_KEYS = new Set([
-          'regADelta', 'regACapThreshold', 'regACapValue',
+          'regADelta',
           'regCThreshold', 'regCMarkup', 'regBMultiplier', 'regBDiscount',
           'uiRoundStep', 'uiThresholdLow', 'uiThresholdHigh',
           'fabZIndex', 'injectionMaxAttempts', 'injectionInitialDelayMs', 'injectionMaxDelayMs',
@@ -1021,7 +1020,7 @@
 
     // Il vecchio FAB standalone (#ar-pricing-btn) non esiste più dalla unificazione;
     // il counter per-riga è stato rimosso (il FAB unico #ar-qr-fab-btn chiude il menu al click).
-    const res = await eseguiConIndici(table, col, null, recupero, sconti);
+    const res = await eseguiConIndici(table, col, recupero, sconti);
     if (sconti) res.sconti = { stato: 'attivo', punti: sconti.punti };
     return res;
   }
@@ -1115,7 +1114,7 @@
 
   // ── CALCOLO PREZZO RIGA (pura, testata da tests/test_calcola_riga.js) ──
   // Lo sconto cliente è sempre un intero di 1-2 cifre (0-99), anche con
-  // uiRoundStep / regACapValue / regBDiscount configurati non interi (#21).
+  // uiRoundStep / regBDiscount configurati non interi (#21).
   function scontoIntero(x) {
     return Math.min(99, Math.max(0, Math.round(x)));
   }
@@ -1147,10 +1146,6 @@
         // Il floor esterno tiene la direzione anche con uno step non intero.
         scontoCliente = Math.floor(Math.floor(scontoRaw / step) * step);
         regola = 'C';
-      } else if (scontoForn > S.regACapThreshold) {
-        // REGOLA A CAP
-        scontoCliente = S.regACapValue;
-        regola = 'A';
       } else {
         // REGOLA A NORMALE
         const diff = scontoForn - S.regADelta;
@@ -1416,7 +1411,7 @@
   // `sconti` (#5739) = null, o { punti, perRiga: Map tr → { code, riga } }: una
   // riga senza codice vale come non in SIRJ; una riga con un codice diverso da
   // quello mandato al bridge, o assente dalla mappa, e' saltata (scontoNonLetto).
-  async function eseguiConIndici(table, col, onProgress, recupero, sconti) {
+  async function eseguiConIndici(table, col, recupero, sconti) {
     const minCols = colonneMinime(col);
 
     const allTr = Array.from(table.querySelectorAll('tbody tr'));
@@ -1428,7 +1423,6 @@
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 
     for (let ri = 0; ri < allTr.length; ri++) {
-      if (onProgress) onProgress(ri + 1, allTr.length);
       const tr = allTr[ri];
       tr.classList.remove('ar-row-nosirj'); // #5739: niente colore rimasto dal giro prima
       const tds = tr.querySelectorAll('td');

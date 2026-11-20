@@ -140,7 +140,7 @@ function makeOptionsEnv({ backendUrl }) {
   vm.runInContext(OPTIONS_SRC, ctx);
   // campi numerici validi (come dopo loadSettings)
   const mappa = {
-    'reg-a-delta': 'regADelta', 'reg-a-cap-threshold': 'regACapThreshold', 'reg-a-cap-value': 'regACapValue',
+    'reg-a-delta': 'regADelta',
     'reg-c-threshold': 'regCThreshold', 'reg-c-markup': 'regCMarkup', 'reg-b-multiplier': 'regBMultiplier',
     'reg-b-discount': 'regBDiscount', 'ui-round-step': 'uiRoundStep', 'ui-threshold-low': 'uiThresholdLow',
     'ui-threshold-high': 'uiThresholdHigh', overrideCliforNumero: 'overrideCliforNumero',

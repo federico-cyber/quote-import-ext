@@ -19,7 +19,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
+const { SRC, caricaDefaults } = require('./_estrai');
 const DEFAULTS_SRC = fs.readFileSync(path.join(__dirname, '..', 'defaults.js'), 'utf8');
 const start = SRC.indexOf('function scontoIntero');
 const end = SRC.indexOf('// ── fine calcolaRiga');
@@ -32,11 +32,8 @@ vm.runInContext(SRC.slice(start, end) +
   '\nthis.f = { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte };', ctx);
 const { calcolaRiga, scegliPreventivo, urlFascia, esitoFascia, opzioniFascia, clienteFascia, esitoConFonte } = ctx.f;
 
-const DEF = {
-  regADelta: 20, regACapThreshold: 80, regACapValue: 70,
-  regCThreshold: 78, regCMarkup: 77,
-  regBMultiplier: 2.0, regBDiscount: 30, uiRoundStep: 5,
-};
+// I valori veri di defaults.js, non una copia scritta a mano.
+const DEF = caricaDefaults();
 const REC = { soglia: 55, punti: 5 };
 
 let failed = 0;
@@ -55,7 +52,7 @@ for (const [nome, acq, lis, S, atteso, normale, applicato] of [
   ['A: 55 → 50', 25, 100, DEF, 50, 55, true],
   ['A: 60 → 55', 20, 100, DEF, 55, 60, true],
   ['A: 54 resta 54 (step 1)', 26, 100, { ...DEF, uiRoundStep: 1 }, 54, 54, false],
-  ['A cap: 70 → 65', 15, 100, DEF, 65, 70, true],
+  ['C: 70 → 65', 15, 100, DEF, 65, 70, true],
   ['C: 80 → 75', 10, 100, DEF, 75, 80, true],
   ['A: 40 resta 40', 40, 100, DEF, 40, 40, false],
   ['B: 30 resta 30', 7, 0, DEF, 30, 30, false],
