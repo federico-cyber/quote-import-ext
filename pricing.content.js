@@ -582,6 +582,24 @@
   }
   // ── fine leggiCella
 
+  // Valori di una riga di preventivo, letti allo stesso modo dal ciclo di pricing
+  // (eseguiConIndici) e dal ricalcolo live dell'utile (onTableInput): prima i due
+  // leggevano le celle in modo diverso (children vs td, pezzi 0 vs 1) e sullo stesso
+  // preventivo potevano dare un utile diverso. Celle mancanti → null; pezzi mancanti o
+  // zero → 1 (una riga e' almeno un pezzo).
+  function leggiRiga(tr, col) {
+    const tds = tr.querySelectorAll('td');
+    return {
+      tds,
+      acquisto: leggiCella(tds[col.acquisto]),
+      listino: leggiCella(tds[col.listino]),
+      vendita: col.vendita != null ? leggiCella(tds[col.vendita]) : null,
+      pezzi: leggiCella(tds[col.pezzi]) || 1,
+    };
+  }
+  // ── fine leggiRiga
+  // ── fine leggiCella
+
   function inputDiCella(td) {
     if (!td) return null;
     return td.querySelector('input');
@@ -979,12 +997,11 @@
       const col = mappaColonne(table);
       if (!col) return;
 
-      const acquisto = leggiCella(tr.children[col.acquisto]);
-      const vendita = leggiCella(tr.children[col.vendita]);
-      const pezzi = leggiCella(tr.children[col.pezzi]) || 0;
+      const { acquisto, vendita, pezzi } = leggiRiga(tr, col);
       const utileCell = tr.querySelector('.ar-utile-cell');
 
-      if (utileCell && acquisto !== null && vendita !== null) {
+      // acquisto > 0: il ricarico divide per l'acquisto (come nel ciclo di pricing)
+      if (utileCell && acquisto > 0 && vendita !== null) {
         const utileTotale = (vendita - acquisto) * pezzi;
         utileCell.textContent = utileTotale.toFixed(2);
 
@@ -1451,13 +1468,9 @@
     for (let ri = 0; ri < allTr.length; ri++) {
       const tr = allTr[ri];
       tr.classList.remove('ar-row-nosirj'); // #5739: niente colore rimasto dal giro prima
-      const tds = tr.querySelectorAll('td');
+      const { tds, acquisto, listino, pezzi } = leggiRiga(tr, col);
 
       if (tds.length < minCols) continue;
-
-      const acquisto = leggiCella(tds[col.acquisto]);
-      const listino = leggiCella(tds[col.listino]);
-      const pezzi = leggiCella(tds[col.pezzi]) || 1;
 
       if (!acquisto || acquisto <= 0) {
         skip++; skipReasons.noAcquisto++;
@@ -1519,6 +1532,10 @@
         if (await setVueInput(listinoInp, listinoOrigValue)) {
           skip++;
           if (listinoScritto) skipReasons.rollbackB++; else skipReasons.setFailed++;
+          // Anche a rollback riuscito la riga entra nello snapshot: un setVueInput
+          // fallito puo' aver lasciato Vue con un valore intermedio, e ANNULLA lo
+          // riporta a quello originale (#71).
+          lastSnapshot.entries.push({ tr, fields: snapFields });
         } else {
           // #34: listino rimasto a un valore diverso dall'originale. La riga
           // entra nello snapshot: ANNULLA la puo' riprovare.
@@ -1590,6 +1607,7 @@
         lastSnapshot.entries.push({ tr, fields: snapFields }); // v1.1.4
       } else {
         skip++; skipReasons.setFailed++;
+        lastSnapshot.entries.push({ tr, fields: snapFields }); // #71: come sopra, ANNULLA la puo' ripristinare
       }
     }
 

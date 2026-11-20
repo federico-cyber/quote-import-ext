@@ -300,7 +300,12 @@ sconto prima del ritocco), e una riga non ridotta non sale mai a soglia (54 non 
   (`skipReasons.setFailed`); se lo sconto non si scrive dopo il listino, il listino torna al
   valore di prima (`rollbackB`). Se anche quella riscrittura fallisce la riga finisce in
   `skipReasons.rollbackFallito` («Listino NON ripristinato, controlla la riga» nel toast), entra
-  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa.
+  nello snapshot (ANNULLA la può riprovare) e Pricing + Import non importa. Entrano nello
+  snapshot anche le righe saltate a rollback riuscito (`rollbackB`, `setFailed` del ramo finale):
+  un `setVueInput` fallito può aver lasciato Vue con un valore intermedio (#71).
+- **Lettura di una riga.** `leggiRiga(tr, col)` è l'unica lettura (acquisto, listino, vendita,
+  pezzi: `td` della riga, pezzi mancante = 1) per il ciclo di pricing e per il ricalcolo live
+  dell'utile (`onTableInput`, che richiede acquisto > 0).
 - **ANNULLA.** Una riga conta come ripristinata solo se **tutti** i suoi campi ancora in pagina
   sono stati riscritti (`setVueInput === true`, oppure campo vuoto prima del pricing che
   Qricambi ripresenta come 0: `ripristinoVuoto`); le righe fallite restano nello snapshot (ANNULLA

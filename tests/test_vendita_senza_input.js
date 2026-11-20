@@ -46,8 +46,8 @@ function mkTr(td) {
 }
 // colonne: 0 acquisto, 1 listino, 2 sconto, 3 vendita, 4 pezzi
 const COL = { acquisto: 0, listino: 1, sconto: 2, vendita: 3, pezzi: 4 };
-function riga({ vendita = 'input' } = {}) {
-  const td = [mkTd('10.00', false), mkTd('30.00', true), mkTd('20', true),
+function riga({ vendita = 'input', listino = 'input', listinoVal = '30.00' } = {}) {
+  const td = [mkTd('10.00', false), mkTd(listinoVal, listino === 'input'), mkTd('20', true),
     vendita === 'input' ? mkTd('24.00', true) : mkTd('24.00', false), mkTd('1', false)];
   return mkTr(td);
 }
@@ -62,7 +62,7 @@ function esegui(righe, col = COL, fallisce = null) {
   vm.runInContext(
     'let lastSnapshot = { entries: [] };\n' +
     'async function setVueInput(input, value) { __scritture.push(input); if (__fallisce && __fallisce(input, value, __scritture)) return false; input.value = String(value); return true; }\n' +
-    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' + estrai('skipReasonsVuoti') + '\n' +
+    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('leggiRiga') + '\n' + estrai('inputDiCella') + '\n' + estrai('skipReasonsVuoti') + '\n' +
     SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
     '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null);' +
     '\nthis.getSnap = () => lastSnapshot;', ctx);
@@ -169,6 +169,46 @@ async function test(name, fn) {
     assert.strictEqual(res.skipReasons.venditaNonConfermata, 1);
     assert.strictEqual(res.dettagli.length, 0);
     assert.strictEqual(r.utile.textContent, '-');
+  });
+
+  await test('#71 sconto non scritto, rollback del listino riuscito: la riga entra comunque nello snapshot', async () => {
+    const r = riga({ listinoVal: '9.00' }); // listino sotto l'acquisto: Regola B lo riscrive
+    const { res, ctx } = await esegui([r], COL, (inp) => inp === r.td[2].inp);
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skip, 1);
+    assert.strictEqual(res.skipReasons.rollbackB, 1, JSON.stringify(res.skipReasons));
+    assert.strictEqual(ctx.getSnap().entries.length, 1, 'riga saltata a rollback riuscito fuori dallo snapshot');
+    assert.strictEqual(r.td[1].inp.value, '9.00', 'listino non tornato all\'originale');
+  });
+
+  await test('#71 listino senza casella e sconto non scritto (ramo finale): riga nello snapshot', async () => {
+    const r = riga({ listino: 'testo' });
+    const { res, ctx } = await esegui([r], COL, (inp) => inp === r.td[2].inp);
+    assert.strictEqual(res.ok, 0);
+    assert.strictEqual(res.skipReasons.setFailed, 1, JSON.stringify(res.skipReasons));
+    assert.strictEqual(ctx.getSnap().entries.length, 1, 'riga saltata nel ramo finale fuori dallo snapshot');
+  });
+
+  await test('#71 righe saltate prima di qualsiasi scrittura (acquisto mancante) restano fuori dallo snapshot', async () => {
+    const r = riga();
+    r.td[0] = mkTd('0', false);
+    const { res, ctx } = await esegui([r], COL);
+    assert.strictEqual(res.skipReasons.noAcquisto, 1);
+    assert.strictEqual(ctx.getSnap().entries.length, 0);
+  });
+
+  await test('#71 leggiRiga: una sola lettura per ciclo e ricalcolo live (pezzi mancante = 1, vendita non mappata = null)', async () => {
+    const ctx = vm.createContext({});
+    vm.runInContext(estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('leggiRiga') +
+      '\nthis.leggiRiga = leggiRiga;', ctx);
+    const r = riga();
+    const v = ctx.leggiRiga(r, COL);
+    assert.deepStrictEqual([v.acquisto, v.listino, v.vendita, v.pezzi], [10, 30, 24, 1]);
+    assert.strictEqual(v.tds.length, 5);
+    r.td[4] = mkTd('0', false);
+    assert.strictEqual(ctx.leggiRiga(r, COL).pezzi, 1, 'pezzi 0 deve valere 1 come nel ciclo');
+    const senzaVendita = ctx.leggiRiga(riga(), { acquisto: 0, listino: 1, sconto: 2, pezzi: 4 });
+    assert.strictEqual(senzaVendita.vendita, null);
   });
 
   await test('#67 mix: una riga confermata e una con vendita non confermata', async () => {

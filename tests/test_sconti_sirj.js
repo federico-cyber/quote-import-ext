@@ -242,7 +242,7 @@ async function test(name, fn) {
       '  for (const tr of __righe) if (tr.td[3].inp === input) {\n' +
       '    const l = parseFloat(tr.td[1].inp.value); tr.td[2].inp.value = String(Math.round((1 - parseFloat(value) / l) * 10000) / 100); }\n' +
       '  return true; }\n' +
-      estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' + estrai('testoCodice') + '\n' + estrai('skipReasonsVuoti') + '\n' +
+      estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('leggiRiga') + '\n' + estrai('inputDiCella') + '\n' + estrai('testoCodice') + '\n' + estrai('skipReasonsVuoti') + '\n' +
       SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
       '\nthis.run = (s) => eseguiConIndici({ querySelectorAll: () => __righe }, ' + JSON.stringify(COL) + ', null, s);', c);
     return c.run(sconti).then((res) => ({ res, scritture }));
