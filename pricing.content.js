@@ -347,9 +347,13 @@
   }
   // ── fine parseNum
 
-  // ── VUE 3 COMPATIBLE INPUT SETTER (v6.1) ──────────────────
+  // ── INPUT SETTER PER VUE (v6.1) ───────────────────────────
   //
-  // Vue 3 + Vuetify 3 usa proxy reattivi: settare input.value
+  // Qricambi gira su Vue 2 + Vuetify 2 (verificato dal vivo il 03/11/2026, vedi
+  // injected.js): scrivono i livelli 1 e 2. Il livello 3 è per Vue 3 e su Vue 2 non
+  // trova mai il componente: resta come ripiego innocuo se Qricambi passasse a Vue 3.
+  //
+  // Vue usa un modello reattivo: settare input.value
   // e sparare un Event('input') funziona spesso ma Vue può
   // ri-renderizzare e sovrascrivere il valore se il suo model
   // interno non è stato aggiornato.
@@ -359,8 +363,8 @@
   //      l'input come se l'utente avesse scritto: innesca
   //      beforeinput/input/compositionend che Vue 3 ascolta
   //   2. nativeSetter + Event dispatch — fallback robusto
-  //   3. __vueParentComponent emit (Vue 3) — aggiorna il modello
-  //      reattivo via update:modelValue (Vue 3 v-model contract)
+  //   3. __vueParentComponent emit (solo Vue 3, inerte su Vue 2) — aggiorna
+  //      il modello reattivo via update:modelValue (contratto v-model di Vue 3)
   //   4. NEW (v6.1): Verification loop — verifica che il valore persista
   //      dopo Vue re-render. Se cambia, ritenta (max 3 volte).
   //      Fix per race condition dove Vue poteva sovrascrivere il valore.
@@ -417,7 +421,7 @@
       } catch (e3) { }
     }
 
-    // ── Livello 3: Vue 3 __vueParentComponent emit ───────────────
+    // ── Livello 3: Vue 3 __vueParentComponent emit (inerte su Vue 2) ──
     try {
       let el = input;
       let depth = 0;

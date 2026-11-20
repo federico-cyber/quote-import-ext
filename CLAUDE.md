@@ -13,7 +13,7 @@ della pagina Qricambi.
 ## Architettura
 
 Un solo FAB su `*.qricambi.com`, con un menu a 2 voci:
-- **⚡ Applica Pricing** → regole pricing A/B/C sulle tabelle preventivo Vue 3.
+- **⚡ Applica Pricing** → regole pricing A/B/C sulle tabelle preventivo (Vue 2 + Vuetify 2).
 - **→ Importa in SIRJ** → invia il preventivo corrente come PR3 al bridge `:5008`.
 
 ### Content scripts
@@ -376,8 +376,11 @@ confermati» nel toast), mai `ok`: `bothBlockReason` (fab.js) blocca l'import pe
 
 ### setVueInput (in `pricing.content.js`)
 
-Funzione critica — Vue 3 può sovrascrivere i valori. Approccio a 4 livelli
+Funzione critica — Vue può sovrascrivere i valori. Approccio a 4 livelli
 (`execCommand` → native setter → `__vueParentComponent` emit → verification loop).
+Qricambi è Vue 2 + Vuetify 2 (verificato il 03/11/2026): scrivono i livelli 1 e 2; il
+livello 3 (`__vueParentComponent`, solo Vue 3) su Vue 2 non trova il componente ed è
+inerte, tenuto come ripiego se Qricambi passasse a Vue 3 (audit #71).
 **Non semplificare mai `setVueInput()`** — la complessità gestisce la reattività Vue.
 
 ### Storico import
