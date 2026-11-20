@@ -39,7 +39,7 @@ const HREF = 'https://app.qricambi.com/#/quote/390061';
 // 'altroReq' = risposta con un reqId sbagliato. bridge(body) → [status, json].
 function makeEnv({ S, form = 'muto', salvato = null, bridge }) {
   const listeners = new Set();
-  const richieste = [], chiamate = [];
+  const richieste = [], chiamate = [], initFetch = [];
   const win = {
     addEventListener: (t, fn) => listeners.add(fn),
     removeEventListener: (t, fn) => listeners.delete(fn),
@@ -63,15 +63,18 @@ function makeEnv({ S, form = 'muto', salvato = null, bridge }) {
     ultimoPreventivo: salvato ? { id: '390061', href: HREF } : null,
     clientiPreventivo: new Map(salvato ? [['390061', salvato]] : []),
     fetch: async (url, init) => {
-      const body = JSON.parse(init.body);
-      chiamate.push(body);
-      const [status, json] = bridge(body);
+      // Registra anche header e signal: sono parte del contratto di fascia-cliente
+      // (X-API-Key, timeout via AbortController), non solo il corpo.
+      initFetch.push({ url, method: init.method, headers: init.headers, signal: init.signal });
+      const corpo = JSON.parse(init.body);
+      chiamate.push(corpo);
+      const [status, json] = bridge(corpo);
       return { status, json: async () => json };
     },
   });
   vm.runInContext(DEFAULTS_SRC, ctx);
   vm.runInContext(PURO + LETTURA + '\nthis.leggiFascia = leggiFascia;', ctx);
-  return { leggi: () => ctx.leggiFascia(), problema: (u) => ctx.backendUrlProblem(u), richieste, chiamate };
+  return { leggi: () => ctx.leggiFascia(), problema: (u) => ctx.backendUrlProblem(u), richieste, chiamate, initFetch };
 }
 
 // Bridge con la fascia accesa: GIMA in recupero, altri normali, senza cliente 400.
@@ -97,6 +100,19 @@ test('vecchio interruttore salvato a false: il form si legge lo stesso (#63)', a
   assert.strictEqual(richiesteForm(e), 1);
   assert.strictEqual(e.chiamate[0].customerdata.CustomerCode, '158');
   assert.strictEqual(r.stato, 'recupero');
+});
+
+test('la richiesta porta X-API-Key e un signal di timeout (AbortController)', async () => {
+  const e = makeEnv({ S: { apiKey: 'chiave-di-prova' }, form: formCon(GIMA), bridge: BRIDGE });
+  await e.leggi();
+  assert.strictEqual(e.initFetch.length, 1);
+  const f = e.initFetch[0];
+  assert.strictEqual(f.method, 'POST');
+  assert.strictEqual(f.headers['X-API-Key'], 'chiave-di-prova');
+  assert.strictEqual(f.headers['Content-Type'], 'application/json');
+  assert.ok(f.url.endsWith('/api/quote-import/fascia-cliente'), f.url);
+  assert.ok(f.signal && typeof f.signal.aborted === 'boolean', 'manca il signal del timeout');
+  assert.strictEqual(f.signal.aborted, false, 'timeout scattato subito');
 });
 
 test('il body porta versione e fonte del cliente per il log del bridge', async () => {

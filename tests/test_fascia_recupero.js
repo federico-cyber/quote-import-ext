@@ -91,17 +91,35 @@ test('sweep: col recupero lo sconto non supera mai quello normale, vendita al ce
       assert.ok(Number.isInteger(r.scontoCliente), msg);
       assert.ok(r.scontoCliente <= n.scontoCliente, msg);
       assert.ok(venditaAlCentesimo(r), msg);
-      if (n.scontoCliente >= 57) {
-        assert.ok(r.scontoCliente <= n.scontoCliente - 3, msg);
+      // Spec: da soglia in su si tolgono esattamente `punti` punti (qui, passo 5, il
+      // ritocco al centesimo non sposta lo sconto: ogni sconto e' multiplo di 5).
+      if (n.scontoCliente >= REC.soglia) {
+        assert.strictEqual(r.scontoCliente, n.scontoCliente - REC.punti, msg);
+        assert.strictEqual(r.recuperoApplicato, true, msg);
         ridotte++;
+      } else {
+        assert.strictEqual(r.scontoCliente, n.scontoCliente, msg);
+        assert.strictEqual(r.recuperoApplicato, false, msg);
       }
-      if (n.scontoCliente < 53) assert.strictEqual(r.scontoCliente, n.scontoCliente, msg);
       // il ritocco al centesimo non porta a soglia una riga non ridotta
       if (!r.recuperoApplicato) assert.ok(r.scontoCliente < REC.soglia, msg);
     }
   }
   assert.ok(ridotte > 100, `sweep troppo povero: ${ridotte}`);
 });
+
+// Banda di confine con passo 1 (55 e 56 sono >= soglia): tolgono esattamente `punti`,
+// 54 resta com'e'. Senza ritocco al centesimo di mezzo (listino 100: vendita gia' al centesimo).
+for (const [acq, normale, atteso] of [[26, 54, 54], [25, 55, 50], [24, 56, 51], [23, 57, 52]]) {
+  test(`recupero passo 1 sulla soglia: ${normale} → ${atteso}`, () => {
+    const S1 = { ...DEF, uiRoundStep: 1 };
+    const n = calcolaRiga(acq, 100, S1, null);
+    const r = calcolaRiga(acq, 100, S1, REC);
+    assert.strictEqual(n.scontoCliente, normale, 'sconto senza recupero');
+    assert.strictEqual(r.scontoCliente, atteso, 'sconto con recupero');
+    assert.strictEqual(r.recuperoApplicato, normale >= REC.soglia);
+  });
+}
 
 test('sweep a passo 1: il ritocco non porta a soglia né ridà i punti tolti', () => {
   const S1 = { ...DEF, uiRoundStep: 1 };
