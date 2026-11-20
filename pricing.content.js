@@ -283,6 +283,29 @@
     span.textContent = `● ${label}: ${parseInt(count, 10)}`;
     return span.outerHTML + '<br>';
   }
+  // ── fine toastLine
+
+  // Contatori dei motivi per cui una riga non viene prezzata: unica copia della
+  // forma, usata dal ciclo (eseguiConIndici) e dal ritorno a vuoto di esegui.
+  function skipReasonsVuoti() {
+    return { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+  }
+  // ── fine skipReasonsVuoti
+
+  // Righe del toast per le righe saltate, una per motivo presente: unica copia,
+  // usata dal toast «0 righe aggiornate» e da quello di successo.
+  function righeSaltate(sr) {
+    sr = sr || {};
+    return (sr.noAcquisto  ? toastLine('r', 'Senza acquisto', sr.noAcquisto) : '') +
+      (sr.noScontoInp ? toastLine('r', 'Campo sconto assente', sr.noScontoInp) : '') +
+      (sr.noVenditaInp ? toastLine('r', 'Campo vendita assente', sr.noVenditaInp) : '') +
+      (sr.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', sr.venditaNonConfermata) : '') +
+      (sr.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', sr.scontoNonLetto) : '') +
+      (sr.rollbackB   ? toastLine('r', 'Rollback listino', sr.rollbackB) : '') +
+      (sr.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', sr.rollbackFallito) : '') +
+      (sr.setFailed   ? toastLine('r', 'Scrittura fallita', sr.setFailed) : '');
+  }
+  // ── fine righeSaltate
 
   // Legge un numero da testo/valore di cella. Formato italiano (quote-import-ext#32):
   //   "1.234,56" → 1234.56 (punto = migliaia, virgola = decimale)
@@ -826,14 +849,7 @@
         showToast(
           `<b>0 righe aggiornate</b><br>` +
           toastFascia(fascia, 0) +
-          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
-          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
-          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
-          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
-          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          righeSaltate(res.skipReasons) +
           `<span class="m">Controlla la console (F12) per i dettagli.</span>`,
           'error'
         );
@@ -857,14 +873,7 @@
           (nTipo('senzaRegola') ? toastLine('o', punti ? `Non in SIRJ o senza regola, sconto −${punti} (gialle)` : 'Non in SIRJ o senza regola, regola di sempre (gialle)', nTipo('senzaRegola')) : '') +
           (nTipo('sottoCosto') ? toastLine('o', 'SIRJ sotto l\'acquisto, regola di sempre (gialle)', nTipo('sottoCosto')) : '') +
           (nTipo('senzaListino') ? toastLine('o', 'Senza listino, regola di sempre (gialle)', nTipo('senzaListino')) : '') +
-          (res.skipReasons.noAcquisto  ? toastLine('r', 'Senza acquisto', res.skipReasons.noAcquisto) : '') +
-          (res.skipReasons.noScontoInp ? toastLine('r', 'Campo sconto assente', res.skipReasons.noScontoInp) : '') +
-          (res.skipReasons.noVenditaInp ? toastLine('r', 'Campo vendita assente', res.skipReasons.noVenditaInp) : '') +
-          (res.skipReasons.venditaNonConfermata ? toastLine('r', 'Vendita o sconto non confermati', res.skipReasons.venditaNonConfermata) : '') +
-          (res.skipReasons.scontoNonLetto ? toastLine('r', 'Riga cambiata durante la lettura degli sconti SIRJ, rilancia', res.skipReasons.scontoNonLetto) : '') +
-          (res.skipReasons.rollbackB   ? toastLine('r', 'Rollback listino', res.skipReasons.rollbackB) : '') +
-          (res.skipReasons.rollbackFallito ? toastLine('r', 'Listino NON ripristinato, controlla la riga', res.skipReasons.rollbackFallito) : '') +
-          (res.skipReasons.setFailed   ? toastLine('r', 'Scrittura fallita', res.skipReasons.setFailed) : '') +
+          righeSaltate(res.skipReasons) +
           `<span class="m">Verifica e salva il preventivo.</span>`,
           'success'
         );
@@ -980,7 +989,7 @@
     const table = trovaTabellaPreventivo();
     console.log(TAG, 'Tabella trovata:', table ? 'sì' : 'no');
 
-    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 }, dettagli: [], cambiate: 0 });
+    const vuoto = () => ({ tot: 0, ok: 0, skip: 0, skipReasons: skipReasonsVuoti(), dettagli: [], cambiate: 0 });
     const col = mappaColonne(table);
     if (!col) return vuoto();
 
@@ -1418,7 +1427,7 @@
     console.log(TAG, `Analisi su ${allTr.length} righe`);
 
     let ok = 0, skip = 0, cambiate = 0;
-    const skipReasons = { noAcquisto: 0, noScontoInp: 0, noVenditaInp: 0, venditaNonConfermata: 0, scontoNonLetto: 0, rollbackB: 0, rollbackFallito: 0, setFailed: 0 };
+    const skipReasons = skipReasonsVuoti();
     const dettagli = [];
     lastSnapshot = { entries: [] }; // v1.1.4: ricostruito da zero a ogni applicazione
 

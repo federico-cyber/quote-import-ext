@@ -62,7 +62,7 @@ function esegui(righe, col = COL, fallisce = null) {
   vm.runInContext(
     'let lastSnapshot = { entries: [] };\n' +
     'async function setVueInput(input, value) { __scritture.push(input); if (__fallisce && __fallisce(input, value, __scritture)) return false; input.value = String(value); return true; }\n' +
-    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' +
+    estrai('parseNum') + '\n' + estrai('leggiCella') + '\n' + estrai('inputDiCella') + '\n' + estrai('skipReasonsVuoti') + '\n' +
     SRC.slice(calcStart, calcEnd) + '\n' + SRC.slice(cicloStart, cicloEnd) +
     '\nthis.run = (c) => eseguiConIndici({ querySelectorAll: () => __righe }, c, null);' +
     '\nthis.getSnap = () => lastSnapshot;', ctx);
@@ -116,11 +116,33 @@ async function test(name, fn) {
     assert.strictEqual(res.skipReasons.noVenditaInp, 1);
   });
 
-  await test('motivo visibile nel riepilogo: toast con e senza righe ok, e default del ritorno a vuoto', async () => {
-    const n = SRC.split('res.skipReasons.noVenditaInp ? toastLine(').length - 1;
-    assert.strictEqual(n, 2, `toast con noVenditaInp: ${n} su 2`);
-    assert.ok(/skipReasons: \{[^}]*noVenditaInp: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
-      'noVenditaInp assente dal ritorno a vuoto di esegui');
+  // Toast: si costruisce davvero (toastLine + righeSaltate estratte dal sorgente, document
+  // finto) con un esito finto e si asserisce sul testo prodotto, non sulla forma del codice.
+  const ctxToast = vm.createContext({
+    document: { createElement: () => {
+      const el = { className: '', textContent: '' };
+      Object.defineProperty(el, 'outerHTML', { get: () => `<span class="${el.className}">${el.textContent}</span>` });
+      return el;
+    } },
+  });
+  vm.runInContext(estrai('toastLine') + '\n' + estrai('skipReasonsVuoti') + '\n' + estrai('righeSaltate') +
+    '\nthis.righeSaltate = righeSaltate; this.skipReasonsVuoti = skipReasonsVuoti;', ctxToast);
+
+  await test('#56 motivo visibile nel toast: noVenditaInp produce «Campo vendita assente: N»', async () => {
+    const html = ctxToast.righeSaltate({ ...ctxToast.skipReasonsVuoti(), noVenditaInp: 2 });
+    assert.ok(html.includes('Campo vendita assente: 2'), html);
+    assert.ok(!html.includes('Senza acquisto'), 'riga di un altro motivo nel toast');
+  });
+
+  await test('il ritorno a vuoto e il toast conoscono gli stessi motivi: ogni contatore produce una riga', async () => {
+    const vuoti = ctxToast.skipReasonsVuoti();
+    assert.ok(Object.keys(vuoti).length >= 8, 'contatori mancanti');
+    for (const k of Object.keys(vuoti)) {
+      assert.strictEqual(vuoti[k], 0, `${k} non parte da 0`);
+      assert.strictEqual(ctxToast.righeSaltate(vuoti), '', 'toast con tutti i contatori a 0 non vuoto');
+      const html = ctxToast.righeSaltate({ ...vuoti, [k]: 3 });
+      assert.ok(/● [^<]+: 3/.test(html), `motivo ${k} senza riga nel toast`);
+    }
   });
 
   // #67: Vendita o riscrittura dello sconto non confermate -> riga saltata, import bloccato
@@ -165,11 +187,9 @@ async function test(name, fn) {
     assert.strictEqual(res.skipReasons.venditaNonConfermata || 0, 0);
   });
 
-  await test('#67 motivo visibile nel riepilogo: toast con e senza righe ok, e default del ritorno a vuoto', async () => {
-    const n = SRC.split('res.skipReasons.venditaNonConfermata ? toastLine(').length - 1;
-    assert.strictEqual(n, 2, `toast con venditaNonConfermata: ${n} su 2`);
-    assert.ok(/skipReasons: \{[^}]*venditaNonConfermata: 0/.test(SRC.slice(SRC.indexOf('async function esegui('), cicloStart)),
-      'venditaNonConfermata assente dal ritorno a vuoto di esegui');
+  await test('#67 motivo visibile nel toast: venditaNonConfermata produce la riga', async () => {
+    const html = ctxToast.righeSaltate({ ...ctxToast.skipReasonsVuoti(), venditaNonConfermata: 1 });
+    assert.ok(html.includes('Vendita o sconto non confermati: 1'), html);
   });
 
   if (failed) { console.log(`\n${failed} test falliti`); process.exit(1); }
