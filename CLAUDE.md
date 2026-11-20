@@ -125,6 +125,7 @@ node tests/test_manifest_privacy.js
 node tests/test_sconti_sirj.js
 node tests/test_set_vue_input.js
 node tests/test_clienti_preventivo.js
+node tests/test_popup_regole.js
 ```
 
 ### Indirizzo del server valido o niente invio (#68)

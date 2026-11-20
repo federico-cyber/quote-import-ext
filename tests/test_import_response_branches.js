@@ -37,6 +37,7 @@ const { idsFromHref, backendUrlProblem, overrideClifor, fallbackClifor } = (() =
 })();
 
 
+const { caricaDefaults } = require('./_estrai');
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'import.content.js'), 'utf8');
 const POPUP_SRC = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
 
@@ -367,6 +368,7 @@ const R200_OK = { status: 200, body: { status: 'ok', sirj_numero: 777, sirj_anno
     const container = fakeEl();
     const ctx = {
       Date,
+      DEFAULTS: caricaDefaults(),
       document: {
         getElementById: (id) => (id === 'history' ? container : fakeEl()),
         createElement: fakeEl,

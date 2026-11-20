@@ -60,6 +60,50 @@ function renderHistory(history) {
   });
 }
 
+// Numero da mostrare: quello salvato nelle Opzioni se e' un numero finito, altrimenti il default.
+function numRegola(s, k) {
+  const raw = s && s[k];
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) return DEFAULTS[k];  // Number(null) e' 0
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : DEFAULTS[k];
+}
+const fmtNum = (n) => String(+n.toFixed(2));
+
+// Le tre regole di prezzo coi parametri veri (Opzioni), non con numeri scritti a mano
+// nell'HTML che divergono appena si cambia un'impostazione.
+function renderRegole(s) {
+  const container = document.getElementById('rules');
+  if (!container) return;
+  container.textContent = '';
+  const soglia = numRegola(s, 'regCThreshold');
+  const righe = [
+    ['Regola A', ` — con listino sopra l'acquisto (sconto ≤ ${fmtNum(soglia)}pp): sconto cliente = sconto fornitore `,
+      `− ${fmtNum(numRegola(s, 'regADelta'))}pp`, '.'],
+    ['Regola C', ` — listino + sconto > ${fmtNum(soglia)}pp: prezzo cliente = netto `,
+      `× ${fmtNum(1 + numRegola(s, 'regCMarkup') / 100)}`, '.'],
+    ['Regola B', ' — senza listino, o listino non sopra l\'acquisto: listino fittizio = netto ',
+      `× ${fmtNum(numRegola(s, 'regBMultiplier'))}`, ', sconto ',
+      `${fmtNum(numRegola(s, 'regBDiscount'))}%`, '.'],
+  ];
+  for (const [titolo, ...pezzi] of righe) {
+    const row = document.createElement('div');
+    row.className = 'rule';
+    const b = document.createElement('b');
+    b.textContent = titolo;
+    row.appendChild(b);
+    // pezzi alterna testo (span) e valore (code)
+    pezzi.forEach((p, i) => {
+      const c = document.createElement(i % 2 === 0 ? 'span' : 'code');
+      c.textContent = p;
+      row.appendChild(c);
+    });
+    container.appendChild(row);
+  }
+}
+// ── fine renderRegole
+
+chrome.storage.local.get(DEFAULTS, (s) => renderRegole(s));
+
 chrome.storage.local.get({ importHistory: [] }, (s) => {
   const history = Array.isArray(s.importHistory) ? s.importHistory : [];
   renderHistory(history);
