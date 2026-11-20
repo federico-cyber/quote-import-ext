@@ -21,7 +21,7 @@ const assert = require('assert');
 const SRC = fs.readFileSync(
   path.join(__dirname, '..', 'pricing.content.js'), 'utf8');
 const pStart = SRC.indexOf('function parseNum');
-const pEnd = SRC.indexOf('// ── VUE 3 COMPATIBLE INPUT SETTER');
+const pEnd = SRC.indexOf('// ── INPUT SETTER PER VUE');
 const lStart = SRC.indexOf('function leggiCella');
 const lEnd = SRC.indexOf('function inputDiCella');
 assert.ok(pStart > 0 && pEnd > pStart, 'blocco parseNum non trovato in pricing.content.js');
