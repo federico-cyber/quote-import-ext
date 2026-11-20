@@ -37,6 +37,17 @@ lo raccoglie dal lato ISOLATED per effettuare la chiamata al backend.
 `fab.js` carica per primo fra i tre script ISOLATED dipendenti da `DEFAULTS` e
 crea `window.__AR_QRICAMBI`; i due content script vi registrano il loro handler.
 
+### Canale postMessage: limite residuo (#71)
+
+Ogni `postMessage` usa come targetOrigin `window.location.origin` (mai `"*"`) e ogni
+listener (`injected.js`, `fab.js`, `import.content.js`, `pricing.content.js`) accetta solo
+`event.source === window && event.origin === window.location.origin`: scarta iframe e
+finestre di altre origini. **Limite che resta:** fra MAIN e ISOLATED un token non si puo
+nascondere alla pagina, perche' il canale e' il `window` condiviso, leggibile e scrivibile da
+ogni script di app.qricambi.com. Per questo non c'e' un canale a token: sarebbe teatro. Il
+backend resta protetto dalla sua API key e dal controllo dell'indirizzo (#68); la mappa
+`clientiPreventivo` tiene solo gli ultimi 20 preventivi.
+
 ### Conferma del salvataggio Qricambi (arauto#1990)
 
 `injected.js` pubblica il payload **solo dopo** che Qricambi ha confermato la PATCH
@@ -107,6 +118,8 @@ node tests/test_import_backend_url_guard.js
 node tests/test_log_senza_apikey.js
 node tests/test_manifest_privacy.js
 node tests/test_sconti_sirj.js
+node tests/test_set_vue_input.js
+node tests/test_clienti_preventivo.js
 ```
 
 ### Indirizzo del server valido o niente invio (#68)

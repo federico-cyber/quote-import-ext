@@ -9,6 +9,14 @@
   const TAG = "[QUOTE-IMPORT MAIN v1.2.11]";
   console.log(TAG, "loaded — hooking fetch + XHR");
 
+  // Canale MAIN → ISOLATED: targetOrigin = l'origine della pagina (mai "*"), e in
+  // ascolto si accetta solo la stessa finestra E la stessa origine. Il canale resta
+  // comunque leggibile/scrivibile da ogni script della pagina: vedi CLAUDE.md,
+  // «Canale postMessage: limite residuo».
+  function postaAlContentScript(msg) {
+    window.postMessage(msg, window.location.origin);
+  }
+
   // Estrae il payload di una PATCH /api/Quote dal corpo della richiesta.
   // NON pubblica nulla: si limita a preparare il candidato. La pubblicazione
   // avviene solo dopo la risposta positiva del server (vedi publishConfirmed).
@@ -49,7 +57,7 @@
         return;
       }
       lastPublishedSeq = seq;
-      window.postMessage({ source: "AR_QUOTE_IMPORT", payload: parsed, seq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_IMPORT", payload: parsed, seq });
       console.log(TAG, "PATCH /api/Quote CONFERMATA dal server ID=", parsed.ID,
                   "items=", parsed.items.length);
     } catch (e) { /* no-op */ }
@@ -77,7 +85,7 @@
       const m = /\/api\/quote\/find\/(\d+)/i.exec(String(url));
       if (m) {
         const find = { id: m[1], seq: ++openSeq };
-        window.postMessage({ source: "AR_QUOTE_OPEN_INTENT", id: find.id, seq: find.seq }, "*");
+        postaAlContentScript({ source: "AR_QUOTE_OPEN_INTENT", id: find.id, seq: find.seq });
         return find;
       }
     } catch (e) { /* no-op */ }
@@ -86,7 +94,7 @@
 
   function publishOpened(find) {
     try {
-      window.postMessage({ source: "AR_QUOTE_OPEN", id: find.id, seq: find.seq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_OPEN", id: find.id, seq: find.seq });
     } catch (e) { /* no-op */ }
   }
 
@@ -102,7 +110,7 @@
   let confirmedSeq = 0;
   function postSaves() {
     try {
-      window.postMessage({ source: "AR_QUOTE_SAVES", inflight, sentSeq: lastSentSeq, confirmedSeq }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_SAVES", inflight, sentSeq: lastSentSeq, confirmedSeq });
     } catch (e) { /* no-op */ }
   }
   function saveStarted() { inflight++; postSaves(); }
@@ -131,7 +139,7 @@
     try {
       const parsed = typeof body === "string" ? JSON.parse(body) : body;
       const cd = customerdataDi(parsed);
-      window.postMessage({ source: "AR_QUOTE_CUSTOMER", id, customerdata: cd }, "*");
+      postaAlContentScript({ source: "AR_QUOTE_CUSTOMER", id, customerdata: cd });
       console.log(TAG, "GET quote/find/" + id + ": customerdata",
                   cd ? "presente" : "ASSENTE (chiavi: " + Object.keys(parsed || {}).join(",") + ")");
     } catch (e) { /* risposta non JSON: il pricing prezza senza fascia */ }
@@ -188,7 +196,8 @@
 
   window.addEventListener("message", function (event) {
     const d = event.data;
-    if (event.source !== window || !d || d.source !== "AR_FORM_CUSTOMER_REQ") return;
+    if (event.source !== window || event.origin !== window.location.origin
+        || !d || d.source !== "AR_FORM_CUSTOMER_REQ") return;
     let esito;
     try {
       const app = document.querySelector("#app");
@@ -196,7 +205,7 @@
     } catch (e) {
       esito = { trovato: false, motivo: "errore nella lettura del form" };
     }
-    window.postMessage(Object.assign({ source: "AR_FORM_CUSTOMER", reqId: d.reqId }, esito), "*");
+    postaAlContentScript(Object.assign({ source: "AR_FORM_CUSTOMER", reqId: d.reqId }, esito));
   });
 
   function logRejected(via, status, parsed) {

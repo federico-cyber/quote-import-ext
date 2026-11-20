@@ -201,7 +201,7 @@
       if (onChange) onChange();
     };
     const onMessage = (event) => {
-      if (event.source !== window) return;
+      if (event.source !== window || event.origin !== window.location.origin) return;
       const d = event.data;
       if (!d || d.source !== 'AR_QUOTE_SAVES') return;
       saves.inflight = Math.max(0, Number(d.inflight) || 0);

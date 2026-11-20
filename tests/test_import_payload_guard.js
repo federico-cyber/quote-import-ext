@@ -44,6 +44,7 @@ function quote(id, extra = {}) {
     ...extra,
   };
 }
+const ORIGIN = 'https://app.qricambi.com';
 const A = 4711;
 const B = 9999;
 
@@ -107,7 +108,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
     setTimeout: () => 0,
     clearTimeout() {},
     AbortController,
-    location: { href },
+    location: { href, origin: ORIGIN },
   };
   ctx.addEventListener = (type, fn) => { if (type === 'message') listeners.push(fn); };
   vm.createContext(ctx);
@@ -116,7 +117,7 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
   ctx.window = globalObj;
   vm.runInContext(IMPORT_SRC, ctx);
   // simula un postMessage di injected.js (MAIN) verso il content script
-  const post = (data) => listeners.forEach((fn) => fn({ source: globalObj, data }));
+  const post = (data, origin = ORIGIN) => listeners.forEach((fn) => fn({ source: globalObj, origin, data }));
   return { ctx, store, sent, confirmTexts, alerts, removed, post,
            click: () => ctx.window.__AR_QRICAMBI.onImport() };
 }
@@ -125,15 +126,17 @@ function makeImportEnv({ href = 'https://app.qricambi.com/', stored = quote(A), 
 function makeInjectedEnv() {
   const messages = [];
   const pendingFetch = [];
+  const targets = [];
   const win = {
+    location: { origin: ORIGIN },
     fetch: (url, init) => new Promise((resolve) => pendingFetch.push({ url, init, resolve })),
     XMLHttpRequest: function () {},
     addEventListener: () => {},
-    postMessage: (m) => messages.push(m),
+    postMessage: (m, t) => { messages.push(m); targets.push(t); },
   };
   // eslint-disable-next-line no-new-func
   new Function('window', 'console', INJECTED_SRC)(win, { log() {}, error() {} });
-  return { win, messages, pendingFetch };
+  return { win, messages, pendingFetch, targets };
 }
 
 const PATCH_URL = 'https://app.qricambi.com/api/Quote';
@@ -352,6 +355,21 @@ test('import 200 mentre arriva una PATCH piu nuova: il payload nuovo NON viene c
   await p;
   assert.ok(e.store.lastPatchPayload && e.store.lastPatchPayload.total === 555,
     'cancellato un payload piu nuovo di quello importato');
+});
+
+test('messaggio da un altra origine (stessa finestra): ignorato, nessun payload memorizzato', () => {
+  const e = makeImportEnv({ stored: null });
+  e.post({ source: 'AR_QUOTE_IMPORT', payload: quote(A, { total: 999 }), seq: 1 }, 'https://evil.example');
+  assert.ok(!e.store.lastPatchPayload, 'accettato un messaggio di altra origine');
+});
+
+test('injected.js: ogni postMessage ha targetOrigin = origine della pagina, mai "*"', async () => {
+  const { win, messages, pendingFetch, targets } = makeInjectedEnv();
+  const p = win.fetch(PATCH_URL, patchInit(quote(A)));
+  pendingFetch[0].resolve({ ok: true, status: 200 });
+  await p;
+  assert.ok(messages.length >= 1);
+  for (const t of targets) assert.strictEqual(t, ORIGIN);
 });
 
 (async () => {

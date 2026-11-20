@@ -37,19 +37,22 @@ const HREF = 'https://app.qricambi.com/#/quote/390061';
 
 // form: risposta di injected.js ({trovato, id, customerdata}), 'muto' = nessuna risposta,
 // 'altroReq' = risposta con un reqId sbagliato. bridge(body) → [status, json].
+const ORIGIN = 'https://app.qricambi.com';
 function makeEnv({ S, form = 'muto', salvato = null, bridge }) {
   const listeners = new Set();
-  const richieste = [], chiamate = [], initFetch = [];
+  const richieste = [], chiamate = [], initFetch = [], targets = [];
   const win = {
+    location: { origin: ORIGIN },
     addEventListener: (t, fn) => listeners.add(fn),
     removeEventListener: (t, fn) => listeners.delete(fn),
-    postMessage: (msg) => {
+    postMessage: (msg, target) => {
       richieste.push(msg);
+      targets.push(target);
       if (msg.source !== 'AR_FORM_CUSTOMER_REQ' || form === 'muto') return;
       const reqId = form === 'altroReq' ? 'xxx' : msg.reqId;
       const dati = form === 'altroReq' ? { trovato: true, id: '390061', customerdata: GIMA } : form;
       setImmediate(() => {
-        for (const fn of [...listeners]) fn({ source: win, data: { source: 'AR_FORM_CUSTOMER', reqId, ...dati } });
+        for (const fn of [...listeners]) fn({ source: win, origin: ORIGIN, data: { source: 'AR_FORM_CUSTOMER', reqId, ...dati } });
       });
     },
   };

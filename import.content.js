@@ -46,7 +46,8 @@
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
+    // stessa finestra E stessa origine (limite residuo: CLAUDE.md, «Canale postMessage»)
+    if (event.source !== window || event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data) return;
     // #49: AR_QUOTE_OPEN parte solo su risposta 2xx; AR_QUOTE_OPEN_INTENT all'invio

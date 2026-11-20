@@ -656,18 +656,34 @@
   // (GET quote/find/<id>) e di ogni PATCH confermata: id → customerdata.
   const clientiPreventivo = new Map();
   let ultimoPreventivo = null;
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
+  // La mappa tiene solo gli ultimi `max` preventivi visti (l'ordine e' quello
+  // dell'ultimo uso: un id rivisto torna in coda): senza limite cresceva per
+  // tutta la vita della SPA, e puo' essere popolata anche da script della pagina.
+  function ricordaCliente(id, customerdata, max = 20) {
+    clientiPreventivo.delete(id);
+    clientiPreventivo.set(id, customerdata);
+    while (clientiPreventivo.size > max) clientiPreventivo.delete(clientiPreventivo.keys().next().value);
+  }
+  // ── fine ricordaCliente
+
+  // Solo messaggi della pagina stessa: stessa finestra E stessa origine. Il canale
+  // MAIN → ISOLATED resta leggibile e scrivibile da ogni script della pagina
+  // (vedi CLAUDE.md, «Canale postMessage: limite residuo»): questo filtro scarta
+  // iframe e finestre di altre origini, non gli script di Qricambi.
+  function onMessaggioPreventivo(event) {
+    if (event.source !== window || event.origin !== window.location.origin) return;
     const d = event.data;
     if (!d) return;
     if (d.source === 'AR_QUOTE_CUSTOMER' && d.id) {
       ultimoPreventivo = { id: String(d.id), href: location.href };
-      if (d.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.customerdata);
+      if (d.customerdata) ricordaCliente(ultimoPreventivo.id, d.customerdata);
     } else if (d.source === 'AR_QUOTE_IMPORT' && d.payload && d.payload.ID) {
       ultimoPreventivo = { id: String(d.payload.ID), href: location.href };
-      if (d.payload.customerdata) clientiPreventivo.set(ultimoPreventivo.id, d.payload.customerdata);
+      if (d.payload.customerdata) ricordaCliente(ultimoPreventivo.id, d.payload.customerdata);
     }
-  });
+  }
+  // ── fine onMessaggioPreventivo
+  window.addEventListener('message', onMessaggioPreventivo);
 
   // ── LETTURA FASCIA (estratta da tests/test_leggi_fascia.js) ──
   // #59: cliente scelto nel form, anche non salvato. Lo legge injected.js (MAIN,
@@ -680,11 +696,12 @@
       const fine = (v) => { window.removeEventListener('message', onMsg); clearTimeout(t); resolve(v); };
       const onMsg = (event) => {
         const d = event.data;
-        if (event.source === window && d && d.source === 'AR_FORM_CUSTOMER' && d.reqId === reqId) fine(d);
+        if (event.source === window && event.origin === window.location.origin
+            && d && d.source === 'AR_FORM_CUSTOMER' && d.reqId === reqId) fine(d);
       };
       const t = setTimeout(() => fine(null), FORM_TIMEOUT_MS);
       window.addEventListener('message', onMsg);
-      window.postMessage({ source: 'AR_FORM_CUSTOMER_REQ', reqId }, '*');
+      window.postMessage({ source: 'AR_FORM_CUSTOMER_REQ', reqId }, window.location.origin);
     });
   }
 
