@@ -598,7 +598,6 @@
     };
   }
   // ── fine leggiRiga
-  // ── fine leggiCella
 
   function inputDiCella(td) {
     if (!td) return null;
@@ -1010,6 +1009,11 @@
         if (ricarico < S.uiThresholdLow) tr.classList.add('ar-row-low');
         else if (ricarico > S.uiThresholdHigh) tr.classList.add('ar-row-high');
 
+        updateSummaryFromTable();
+      } else if (utileCell) {
+        // acquisto svuotato o a zero: niente utile calcolabile, si toglie quello vecchio
+        utileCell.textContent = '-';
+        tr.classList.remove('ar-row-low', 'ar-row-high');
         updateSummaryFromTable();
       }
     }
